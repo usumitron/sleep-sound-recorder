@@ -1,0 +1,15 @@
+/.monaca/*
+!/.monaca/project_info.json
+/platforms
+.DS_Store
+*.swp
+.vscode/
+typings/
+node_modules
+.git
+CLAUDE.md
+.claude/
+tools/
+logs/
+.git/
+store/

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#263050"/>
+      <stop offset="1" stop-color="#121829"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0.40" cy="0.47" r="0.48">
+      <stop offset="0" stop-color="#F2B656" stop-opacity="0.16"/>
+      <stop offset="0.55" stop-color="#F2B656" stop-opacity="0.04"/>
+      <stop offset="1" stop-color="#F2B656" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="moon" cx="0.36" cy="0.30" r="0.80">
+      <stop offset="0" stop-color="#FADB9C"/>
+      <stop offset="0.55" stop-color="#F2B656"/>
+      <stop offset="1" stop-color="#D4923A"/>
+    </radialGradient>
+    <mask id="crescent">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <circle cx="560" cy="420" r="250" fill="#000"/>
+    </mask>
+  </defs>
+  <rect width="1024" height="1024" fill="url(#bg)"/>
+  <rect width="1024" height="1024" fill="url(#glow)"/>
+  <!-- 三日月（枕元のランプの色） -->
+  <circle cx="420" cy="512" r="300" fill="url(#moon)" mask="url(#crescent)"/>
+  <!-- 眠りの音: 三日月のくぼみに音の波 -->
+  <g fill="#ECE7DC">
+    <rect x="482" y="430" width="44" height="164" rx="22"/>
+    <rect x="556" y="370" width="44" height="284" rx="22"/>
+    <rect x="630" y="450" width="44" height="124" rx="22"/>
+    <rect x="704" y="400" width="44" height="224" rx="22" opacity="0.85"/>
+    <rect x="778" y="472" width="44" height="80" rx="22" opacity="0.65"/>
+  </g>
+  <!-- 星 -->
+  <circle cx="760" cy="250" r="12" fill="#ECE7DC" opacity="0.9"/>
+  <circle cx="830" cy="330" r="7" fill="#ECE7DC" opacity="0.6"/>
+  <circle cx="250" cy="230" r="8" fill="#ECE7DC" opacity="0.5"/>
+</svg>

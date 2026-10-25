@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' data: gap: https://ssl.gstatic.com; style-src 'self' 'unsafe-inline'; img-src 'self' data:; media-src 'self' data: blob:; script-src 'self' 'unsafe-inline'">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="format-detection" content="telephone=no">
+  <meta name="color-scheme" content="dark">
+  <title>眠りの音</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ================= 同意画面 ================= -->
+  <section class="screen" id="screen-consent" hidden>
+    <div class="scroll pad">
+      <h1 class="consent-title">はじめる前に</h1>
+      <p class="lead">「眠りの音」は、眠っているあいだのいびき・寝言・歯ぎしりなど、大きめの音が続いた時間帯をスマートフォンのマイクで記録するアプリです。</p>
+
+      <dl class="consent-list">
+        <dt>録音するもの</dt>
+        <dd>記録中は一晩の音をすべて録音し、1秒ごとの音の大きさを記録します。記録が終わったら、大きめの音が続いた時間帯（前後5秒を含む）の音声だけを残し、それ以外の音声は削除します。</dd>
+        <dt>保存する場所</dt>
+        <dd>記録はこの端末の中だけに保存され、外部へは送信しません。バックアップの対象にもなりません。</dd>
+        <dt>ほかの人の声</dt>
+        <dd>同じ部屋にいる人の声や生活音も録音される場合があります。同室の方がいる場合は、あらかじめ了承を得てください。</dd>
+        <dt>保存期間</dt>
+        <dd>記録は新しいものから30回分を保存します。音声は直前の1回分だけを残し、それより前はグラフのみ残ります。設定からいつでも全件を削除できます。</dd>
+        <dt>医療機器ではありません</dt>
+        <dd>このアプリは病気の診断や治療を目的としたものではありません。気になる症状がある場合は、医師に相談してください。</dd>
+      </dl>
+
+      <label class="check">
+        <input type="checkbox" id="consent-check">
+        <span>上記の内容を理解し、同意します</span>
+      </label>
+      <button class="btn primary block" id="consent-accept" disabled>同意して始める</button>
+      <button class="btn link block" data-open-policy>プライバシーポリシーを読む</button>
+    </div>
+  </section>
+
+  <!-- ================= ホーム ================= -->
+  <section class="screen" id="screen-home" hidden>
+    <div class="scroll pad home">
+      <p class="home-greeting" id="home-greeting">おやすみの準備ができたら</p>
+
+      <button class="lamp" id="start-btn" aria-label="記録を始める">
+        <span class="lamp-glow" aria-hidden="true"></span>
+        <span class="lamp-face">
+          <span class="lamp-label">記録を始める</span>
+        </span>
+      </button>
+
+      <div class="home-settings">
+        <label class="row-field">
+          <span class="row-label">自動で終了する時刻</span>
+          <input type="time" id="end-time" class="time-input" required>
+        </label>
+        <button class="row-field as-button" data-go="settings">
+          <span class="row-label">検知の感度</span>
+          <span class="row-value" id="home-sensitivity">中</span>
+        </button>
+      </div>
+
+      <div class="records" id="records" hidden>
+        <h2 class="section-title">前回までの記録</h2>
+        <ul class="session-list" id="session-list"></ul>
+        <p class="list-foot muted" id="list-foot"></p>
+      </div>
+
+      <button class="btn link block" id="sample-btn">サンプルの記録を表示</button>
+    </div>
+  </section>
+
+  <!-- ================= 記録中 ================= -->
+  <section class="screen night" id="screen-recording" hidden>
+    <div class="rec">
+      <p class="rec-state">記録しています</p>
+      <div class="rec-meter" aria-hidden="true">
+        <span class="rec-ring" id="rec-ring"></span>
+        <span class="rec-core"></span>
+      </div>
+      <p class="rec-elapsed" id="rec-elapsed">0:00:00</p>
+      <p class="rec-end" id="rec-end"></p>
+      <p class="rec-note">画面を消しても記録は続きます。<br>充電したまま、枕元から少し離して置いてください。<br>終了後に、大きめの音が続いた時間帯だけを残します。</p>
+
+      <button class="hold-btn" id="stop-btn">
+        <svg class="hold-ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle cx="50" cy="50" r="46" />
+          <circle class="hold-progress" cx="50" cy="50" r="46" />
+        </svg>
+        <span>長押しで停止</span>
+      </button>
+    </div>
+  </section>
+
+  <!-- ================= グラフ詳細 ================= -->
+  <section class="screen" id="screen-detail" hidden>
+    <header class="bar">
+      <button class="bar-back" data-back aria-label="戻る">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <h1 id="detail-title">記録</h1>
+    </header>
+    <!-- グラフと表示範囲ボタンまでは固定。その下（時間帯の一覧）だけスクロールする -->
+    <div class="detail-fixed">
+      <div class="detail-summary pad" id="detail-summary"></div>
+
+      <div class="chart-wrap">
+        <canvas id="chart" aria-label="時刻ごとの音量グラフ" role="img"></canvas>
+      </div>
+      <div class="chart-tools pad">
+        <div class="seg" role="group" aria-label="表示範囲">
+          <button data-window="0" class="on">全体</button>
+          <button data-window="3600">1時間</button>
+          <button data-window="900">15分</button>
+        </div>
+        <p class="chart-legend" aria-label="グラフの見方">
+          <span class="lg lg-blue"></span>1秒ごとの音
+          <span class="lg lg-amber"></span>20秒平均
+          <span class="lg lg-thr"></span>しきい値
+        </p>
+        <p class="chart-hint muted" id="chart-hint">左右になぞると表示位置を動かせます</p>
+      </div>
+    </div>
+
+    <div class="scroll detail-list">
+      <div class="pad">
+        <p class="muted small" id="audio-note"></p>
+        <ul class="event-list" id="event-list"></ul>
+      </div>
+    </div>
+
+    <div class="player" id="player" hidden>
+      <div class="player-head">
+        <span class="player-title" id="player-title"></span>
+        <button class="player-icon" id="player-save" aria-label="音声ファイルを端末に保存">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14"/></svg>
+        </button>
+        <span class="player-spacer"></span>
+        <button class="player-icon" id="player-close" aria-label="プレーヤーを閉じる">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+        </button>
+      </div>
+      <input type="range" class="player-seek" id="player-seek" min="0" max="100" value="0" step="1" aria-label="再生位置">
+      <div class="player-times"><span id="player-pos">0:00</span><span id="player-dur"></span></div>
+      <div class="player-ctrl">
+        <button class="player-btn" id="player-restart" aria-label="最初に戻す（2回タップで前の時間帯）">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M18 6v12l-9-6z"/><path d="M6 6v12"/></svg>
+        </button>
+        <button class="player-btn" id="player-back" aria-label="10秒戻る">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3"/><path d="M6.7 2.8v3.9h3.9"/><text x="12" y="15.4" text-anchor="middle">10</text></svg>
+        </button>
+        <button class="player-main" id="player-toggle" aria-label="再生"></button>
+        <button class="player-btn" id="player-fwd" aria-label="10秒進む">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3"/><path d="M17.3 2.8v3.9h-3.9"/><text x="12" y="15.4" text-anchor="middle">10</text></svg>
+        </button>
+        <button class="player-btn" id="player-next" aria-label="次の時間帯へ">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path class="fill" d="M6 6v12l9-6z"/><path d="M18 6v12"/></svg>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= 設定 ================= -->
+  <section class="screen" id="screen-settings" hidden>
+    <header class="bar"><h1>設定</h1></header>
+    <div class="scroll pad">
+      <h2 class="section-title">検知の感度</h2>
+      <p class="muted small">周りがいちばん静かなときの音を基準に、20秒間の平均の音量がそれより何dB大きい状態が続いたら残すかを決めます。関係ない音まで残るときは低く、小さないびきも残したいときは高くします。記録した後でも、グラフ上の判定はこの設定で見直せます。</p>
+      <div class="radio-group" id="sensitivity-group">
+        <label class="radio"><input type="radio" name="sens" value="low"><span><b data-sens-label="low">低</b>　かなり大きい音だけ</span></label>
+        <label class="radio"><input type="radio" name="sens" value="mid"><span><b data-sens-label="mid">中</b>　標準</span></label>
+        <label class="radio"><input type="radio" name="sens" value="high"><span><b data-sens-label="high">高</b>　小さめの音も残す</span></label>
+      </div>
+
+      <h2 class="section-title">終了時刻の初期値</h2>
+      <label class="row-field">
+        <span class="row-label">自動で終了する時刻</span>
+        <input type="time" id="default-end-time" class="time-input">
+      </label>
+
+      <div id="android-only" hidden>
+        <h2 class="section-title">途中で止まるとき</h2>
+        <p class="muted small">一部の機種では、省電力機能によって記録が止まることがあります。電池の最適化からこのアプリを外してください。</p>
+        <button class="btn block" id="open-battery">電池の最適化設定を開く</button>
+      </div>
+
+      <h2 class="section-title">データ</h2>
+      <button class="btn danger block" id="delete-all">すべての記録を削除</button>
+
+      <h2 class="section-title">このアプリについて</h2>
+      <div class="about">
+        <p><b>眠りの音</b>は、眠っているあいだのいびき・寝言・歯ぎしりなど、自分では気づけない「大きめの音」が、いつ・どれくらい続いていたかを知るためのアプリです。</p>
+        <h3>何をするアプリか</h3>
+        <ol>
+          <li>寝る前に「記録を始める」を押すと、一晩の音を録音し、1秒ごとの音の大きさを記録します。設定した時刻になると自動で終わります。</li>
+          <li>記録が終わると、周りがいちばん静かなときより大きな音が30秒以上続いた時間帯を見つけて、その部分の音声だけを残します。それ以外の音声は削除します。</li>
+          <li>記録の画面で、一晩の音の大きさをグラフで見たり、時間帯ごとに音を聞き返したり、音声ファイルとして保存したりできます。</li>
+        </ol>
+        <h3>グラフの見方</h3>
+        <ul>
+          <li><span class="lg lg-blue"></span><b>青い線（1秒ごとの音）</b>：1秒ごとのいちばん大きな音。寝返りや物音のような一瞬の音もすべて表示します。</li>
+          <li><span class="lg lg-amber"></span><b>橙の線（20秒平均）</b>：前後20秒の平均。一瞬の物音は平らになり、いびきのように続く音だけが盛り上がります。</li>
+          <li><span class="lg lg-thr"></span><b>点線（しきい値）</b>：「周りがいちばん静かなときの音＋感度」。橙の線がこれを超えて30秒以上続くと、色のついた時間帯として残ります。部屋の静かさの変化に合わせて、少し上下します。</li>
+        </ul>
+      </div>
+      <button class="btn link block" data-open-policy>プライバシーポリシー</button>
+      <p class="muted small">このアプリは医療機器ではなく、病気の診断や治療を目的としたものではありません。気になる症状がある場合は、医師に相談してください。</p>
+      <p class="muted small" id="app-version"></p>
+    </div>
+  </section>
+
+  <!-- ================= タブバー ================= -->
+  <nav class="tabs" id="tabs" hidden>
+    <button data-go="home" data-tab="home">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+      <span>ホーム</span>
+    </button>
+    <button data-go="settings" data-tab="settings">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+      <span>設定</span>
+    </button>
+  </nav>
+
+  <!-- ================= ダイアログ ================= -->
+  <div class="dialog-back" id="dialog" hidden>
+    <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
+      <h2 id="dialog-title"></h2>
+      <div id="dialog-body"></div>
+      <div class="dialog-actions" id="dialog-actions"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+</div>
+
+<template id="policy-template">
+  <div class="policy">
+    <p>本アプリは、利用者の睡眠中の音を記録するために、次のとおり情報を取り扱います。</p>
+    <h3>取得する情報</h3>
+    <p>記録中のマイク音声。音声から算出した1秒ごとの音量、検知した音の時刻・長さ・大きさ、大きな音が続いていた区間の音声（前後5秒を含む）。記録中は一晩分の音声を一時的に保存し、記録の終了後（次にアプリを開いたとき）に、この区間以外を削除します。</p>
+    <h3>利用目的</h3>
+    <p>利用者自身が睡眠中の音の発生状況を確認するためにのみ利用します。</p>
+    <h3>保存場所と第三者提供</h3>
+    <p>すべての情報は端末内にのみ保存します。運営者を含む外部への送信、第三者への提供は行いません。端末のバックアップ対象からも除外しています。</p>
+    <h3>保存期間</h3>
+    <p>記録は直近30回分を保存し、それより古いものは自動で削除します。音声は直前の1回分のみ保存します。10分未満の記録は保存しません。</p>
+    <h3>削除</h3>
+    <p>設定画面の「すべての記録を削除」から、いつでも全件を削除できます。アプリを削除した場合も、すべての情報が削除されます。</p>
+    <h3>同室者への配慮</h3>
+    <p>同じ部屋にいる人の声や生活音が録音される場合があります。利用者の責任において、同室者の了承を得たうえでご利用ください。</p>
+    <h3>医療目的ではないこと</h3>
+    <p>本アプリは医療機器ではなく、病気の診断・治療・予防を目的としたものではありません。</p>
+  </div>
+</template>
+
+<script src="cordova.js"></script>
+<script src="js/sample.js"></script>
+<script src="js/mock.js"></script>
+<script src="js/analysis.js"></script>
+<script src="js/chart.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plugin xmlns="http://apache.org/cordova/ns/plugins/1.0"
+        xmlns:android="http://schemas.android.com/apk/res/android"
+        id="cordova-plugin-sleep-recorder"
+        version="0.5.0">
+
+  <name>SleepRecorder</name>
+  <description>睡眠中の大きめの音を検知・記録するネイティブプラグイン</description>
+  <license>Proprietary</license>
+
+  <engines>
+    <engine name="cordova-android" version=">=12.0.0" />
+    <engine name="cordova-ios" version=">=6.0.0" />
+  </engines>
+
+  <js-module src="www/sleepRecorder.js" name="SleepRecorder">
+    <clobbers target="SleepRecorder" />
+  </js-module>
+
+  <!-- ===================== Android ===================== -->
+  <platform name="android">
+    <config-file target="res/xml/config.xml" parent="/*">
+      <feature name="SleepRecorder">
+        <param name="android-package" value="com.sleepsound.recorder.SleepRecorderPlugin" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+
+    <config-file target="AndroidManifest.xml" parent="/manifest">
+      <uses-permission android:name="android.permission.RECORD_AUDIO" />
+      <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+      <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+      <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+      <uses-permission android:name="android.permission.WAKE_LOCK" />
+      <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+    </config-file>
+
+    <config-file target="AndroidManifest.xml" parent="/manifest/application">
+      <service
+          android:name="com.sleepsound.recorder.RecorderService"
+          android:exported="false"
+          android:foregroundServiceType="microphone" />
+    </config-file>
+
+    <source-file src="src/android/SleepRecorderPlugin.java" target-dir="src/com/sleepsound/recorder" />
+    <source-file src="src/android/RecorderService.java" target-dir="src/com/sleepsound/recorder" />
+    <source-file src="src/android/AdtsWriter.java" target-dir="src/com/sleepsound/recorder" />
+    <source-file src="src/android/AudioTrimmer.java" target-dir="src/com/sleepsound/recorder" />
+    <source-file src="src/android/SessionStore.java" target-dir="src/com/sleepsound/recorder" />
+  </platform>
+
+  <!-- ===================== iOS ===================== -->
+  <platform name="ios">
+    <config-file target="config.xml" parent="/*">
+      <feature name="SleepRecorder">
+        <param name="ios-package" value="SleepRecorderPlugin" />
+        <param name="onload" value="true" />
+      </feature>
+    </config-file>
+
+    <config-file target="*-Info.plist" parent="UIBackgroundModes">
+      <array>
+        <string>audio</string>
+      </array>
+    </config-file>
+
+    <config-file target="*-Info.plist" parent="NSMicrophoneUsageDescription">
+      <string>睡眠中のいびき・歯ぎしりなどの音を検知して記録するためにマイクを使用します。録音データは端末内にのみ保存され、外部には送信されません。</string>
+    </config-file>
+
+    <source-file src="src/ios/SleepRecorderPlugin.swift" />
+    <source-file src="src/ios/RecorderEngine.swift" />
+    <source-file src="src/ios/AudioTrimmer.swift" />
+    <source-file src="src/ios/SessionStore.swift" />
+
+    <framework src="AVFoundation.framework" />
+    <framework src="AudioToolbox.framework" />
+  </platform>
+</plugin>

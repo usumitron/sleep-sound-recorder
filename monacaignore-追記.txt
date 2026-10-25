@@ -1,0 +1,6 @@
+# 既存の .monacaignore の末尾に追記する（Claude Code 用・開発用のファイルを Monaca に上げない）
+CLAUDE.md
+.claude/
+tools/
+logs/
+.git/

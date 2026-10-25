@@ -1,0 +1,11 @@
+{
+  "name": "cordova-plugin-sleep-recorder",
+  "version": "0.5.0",
+  "description": "睡眠中の大きめの音を検知・記録するネイティブプラグイン",
+  "cordova": {
+    "id": "cordova-plugin-sleep-recorder",
+    "platforms": ["android", "ios"]
+  },
+  "keywords": ["ecosystem:cordova", "cordova-android", "cordova-ios"],
+  "license": "UNLICENSED"
+}

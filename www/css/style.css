@@ -1,0 +1,334 @@
+/* 眠りの音 — 夜の計器
+ * 深い藍の地に、月明かりの文字。アクセントは枕元のランプの琥珀色だけ。
+ * 琥珀色は「記録」に関わるもの（開始ボタンと検知した音）にのみ使う。
+ */
+:root {
+  --night: #1A2138;
+  --night-deep: #121829;
+  --surface: #222B47;
+  --line: #333F66;
+  --text: #ECE7DC;
+  --muted: #98A1C0;
+  --lamp: #F2B656;
+  --lamp-soft: rgba(242, 182, 86, 0.16);
+  --sky: #8FB3E8;
+  --danger: #E8806F;
+
+  --font: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Noto Sans CJK JP", system-ui, sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --tab-h: 60px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; background: var(--night); color: var(--text); }
+body {
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "palt" 1;
+  overscroll-behavior: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--sky); outline-offset: 2px; }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; line-height: 1.6; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* ---------------- 画面の骨組み ---------------- */
+#app { height: 100%; }
+.screen {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  padding-top: var(--safe-top);
+  padding-bottom: calc(var(--tab-h) + var(--safe-bottom));
+}
+#screen-consent, #screen-recording, #screen-detail { padding-bottom: var(--safe-bottom); }
+.scroll { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.pad { padding: 0 20px; }
+
+.bar {
+  display: flex; align-items: center; gap: 4px;
+  min-height: 52px; padding: 0 12px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.bar h1 { font-size: 17px; font-weight: 600; margin: 0; letter-spacing: 0.02em; }
+.bar-back { width: 40px; height: 40px; margin-left: -12px; display: grid; place-items: center; }
+.bar-back svg { width: 22px; height: 22px; fill: none; stroke: var(--text); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+.section-title { font-size: 14px; font-weight: 600; color: var(--muted); margin: 32px 0 8px; letter-spacing: 0.04em; }
+
+/* ---------------- ボタン ---------------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 20px;
+  border-radius: 12px; border: 1px solid var(--line);
+  background: var(--surface); font-weight: 600;
+}
+.btn.block { display: flex; width: 100%; margin-top: 12px; }
+.btn.primary { background: var(--text); color: var(--night-deep); border-color: var(--text); }
+.btn.primary:disabled { opacity: 0.35; }
+.btn.danger { color: var(--danger); }
+.btn.link { border: 0; background: none; color: var(--sky); font-weight: 400; min-height: 44px; }
+.btn:active { transform: scale(0.98); }
+
+/* ---------------- 同意画面 ---------------- */
+.consent-title { font-size: 28px; font-weight: 600; line-height: 1.4; margin: 40px 0 12px; letter-spacing: 0.04em; }
+.lead { font-size: 16px; margin: 0 0 24px; }
+.consent-list { margin: 0 0 24px; }
+.consent-list dt { font-weight: 600; margin-top: 18px; }
+.consent-list dd { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
+.check {
+  display: flex; gap: 12px; align-items: center;
+  padding: 16px; border: 1px solid var(--line); border-radius: 12px;
+}
+.check input { width: 22px; height: 22px; accent-color: var(--lamp); flex: none; }
+#screen-consent .scroll { padding-bottom: 32px; }
+
+/* ---------------- ホーム ---------------- */
+.home { display: flex; flex-direction: column; align-items: stretch; padding-bottom: 24px; }
+.home-greeting { text-align: center; color: var(--muted); margin: 40px 0 8px; font-size: 15px; letter-spacing: 0.06em; }
+
+/* 枕元のランプ。この画面で唯一の強い要素 */
+.lamp {
+  position: relative; align-self: center;
+  width: min(62vw, 240px); aspect-ratio: 1;
+  margin: 24px 0 36px; border-radius: 50%;
+}
+.lamp-glow {
+  position: absolute; inset: -18%;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(242,182,86,0.28) 0%, rgba(242,182,86,0.08) 45%, rgba(242,182,86,0) 70%);
+}
+.lamp-face {
+  position: absolute; inset: 0; border-radius: 50%;
+  display: grid; place-items: center;
+  background: radial-gradient(circle at 38% 32%, #F8D58F 0%, var(--lamp) 55%, #D99A3A 100%);
+  color: #2A1E08;
+  box-shadow: inset 0 -10px 24px rgba(120, 70, 0, 0.25);
+}
+.lamp-label { font-size: 19px; font-weight: 700; letter-spacing: 0.08em; }
+.lamp:active .lamp-face { transform: scale(0.97); }
+.lamp:disabled { opacity: 0.5; }
+
+.home-settings { border-top: 1px solid var(--line); }
+.row-field {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  min-height: 56px; border-bottom: 1px solid var(--line); width: 100%; text-align: left;
+}
+.row-label { color: var(--text); }
+.row-value { color: var(--muted); }
+.time-input {
+  background: transparent; border: 0; color: var(--text);
+  font-size: 22px; font-variant-numeric: tabular-nums; text-align: right;
+  min-width: 96px; padding: 4px 0;
+  color-scheme: dark;
+}
+
+/* ---------------- セッション一覧 ---------------- */
+.session-list { list-style: none; margin: 0; padding: 0; }
+.session-row {
+  display: grid; grid-template-columns: 1fr auto; gap: 2px 16px;
+  width: 100%; padding: 16px 20px; text-align: left;
+  border-bottom: 1px solid var(--line);
+}
+.last-session .session-row { padding: 14px 0; }
+.session-date { font-weight: 600; }
+.session-span { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.session-count { grid-row: 1 / span 2; grid-column: 2; align-self: center; text-align: right; }
+.session-count b { display: block; font-size: 22px; font-weight: 600; line-height: 1.2; font-variant-numeric: tabular-nums; }
+.session-count small { color: var(--muted); font-size: 12px; }
+.session-tag {
+  display: inline-block; margin-left: 8px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: 999px;
+  font-size: 12px; font-weight: 400; color: var(--muted); vertical-align: 2px;
+}
+.empty { padding: 48px 24px; text-align: center; }
+.empty .btn { margin-top: 16px; }
+.list-foot { text-align: center; font-size: 12px; padding: 16px 20px 24px; }
+
+/* ---------------- 記録中 ---------------- */
+.night { background: var(--night-deep); }
+.rec {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  padding: 24px; text-align: center;
+}
+.rec-state { color: var(--muted); letter-spacing: 0.12em; font-size: 14px; margin: 0 0 28px; }
+.rec-meter { position: relative; width: 132px; height: 132px; display: grid; place-items: center; }
+.rec-core { width: 14px; height: 14px; border-radius: 50%; background: var(--lamp); opacity: 0.85; }
+.rec-ring {
+  position: absolute; inset: 0; margin: auto;
+  width: 40px; height: 40px; border-radius: 50%;
+  border: 1.5px solid rgba(242,182,86,0.55);
+  transition: width 0.6s ease-out, height 0.6s ease-out, border-color 0.6s;
+}
+.rec-elapsed { font-size: 52px; font-weight: 200; letter-spacing: 0.04em; margin: 28px 0 0; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.rec-end { color: var(--muted); margin: 6px 0 0; font-variant-numeric: tabular-nums; }
+.rec-events { margin: 20px 0 0; }
+.rec-events span { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rec-note { color: var(--muted); font-size: 13px; margin: 28px 0 0; line-height: 1.8; }
+
+.hold-btn {
+  position: relative; margin-top: 40px;
+  width: 112px; height: 112px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 14px; color: var(--text);
+}
+.hold-ring { position: absolute; inset: 0; transform: rotate(-90deg); }
+.hold-ring circle { fill: none; stroke: var(--line); stroke-width: 3; }
+.hold-ring .hold-progress { stroke: var(--text); stroke-dasharray: 289; stroke-dashoffset: 289; stroke-linecap: round; }
+.hold-btn.holding .hold-progress { transition: stroke-dashoffset 1.2s linear; stroke-dashoffset: 0; }
+
+/* ---------------- 詳細 ---------------- */
+.detail-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding-top: 16px; padding-bottom: 12px; }
+.stat b { display: block; font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1.3; }
+.stat span { color: var(--muted); font-size: 12px; }
+.detail-span { grid-column: 1 / -1; color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; margin: 0 0 4px; }
+
+.chart-wrap { position: relative; height: 220px; margin: 4px 0 0; touch-action: pan-y; }
+#chart { width: 100%; height: 100%; display: block; }
+.chart-tools { display: flex; flex-direction: column; gap: 6px; padding-top: 10px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+.seg button { min-height: 38px; font-size: 14px; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button.on { background: var(--surface); color: var(--text); font-weight: 600; }
+.chart-hint { font-size: 12px; margin: 0; }
+
+.event-list { list-style: none; margin: 0 0 32px; padding: 0; }
+.event-row {
+  display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px;
+  padding: 12px 0; border-bottom: 1px solid var(--line);
+}
+.event-row.selected { background: linear-gradient(90deg, var(--lamp-soft), transparent 70%); }
+.event-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+.event-meta { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.play {
+  width: 44px; height: 44px; border-radius: 50%;
+  border: 1px solid var(--line); display: grid; place-items: center;
+}
+.play svg { width: 16px; height: 16px; fill: var(--lamp); }
+.play.playing { border-color: var(--lamp); }
+
+/* ---------------- 設定 ---------------- */
+.radio-group { border-top: 1px solid var(--line); margin-top: 12px; }
+.radio { display: flex; align-items: center; gap: 12px; min-height: 52px; border-bottom: 1px solid var(--line); }
+.radio input { width: 20px; height: 20px; accent-color: var(--lamp); }
+.radio b { font-weight: 600; }
+#screen-settings .scroll { padding-bottom: 32px; }
+
+/* ---------------- タブバー ---------------- */
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0;
+  height: calc(var(--tab-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  display: grid; grid-template-columns: repeat(2, 1fr);
+  background: var(--night-deep); border-top: 1px solid var(--line);
+}
+.tabs button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; font-size: 11px; color: var(--muted); }
+.tabs svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.tabs button.on { color: var(--text); }
+
+/* ---------------- ダイアログ・トースト ---------------- */
+.dialog-back {
+  position: fixed; inset: 0; z-index: 20;
+  background: rgba(8, 11, 20, 0.7);
+  display: grid; place-items: center; padding: 24px;
+}
+.dialog {
+  width: 100%; max-width: 360px; max-height: 80vh; overflow-y: auto;
+  background: var(--surface); border-radius: 16px; padding: 22px 20px 14px;
+  border: 1px solid var(--line);
+}
+.dialog h2 { font-size: 18px; margin: 0 0 8px; }
+.dialog p { margin: 0 0 8px; color: var(--muted); font-size: 15px; }
+.dialog-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+.dialog-actions .btn { width: 100%; }
+.policy h3 { font-size: 15px; margin: 16px 0 4px; color: var(--text); }
+.policy p { font-size: 14px; }
+
+.toast {
+  position: fixed; left: 20px; right: 20px; z-index: 30;
+  bottom: calc(var(--tab-h) + var(--safe-bottom) + 16px);
+  background: var(--text); color: var(--night-deep);
+  padding: 12px 16px; border-radius: 12px; font-size: 14px; text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rec-ring { transition: none; }
+  .hold-btn.holding .hold-progress { transition-duration: 0.01s; }
+}
+.event-main { text-align: left; width: 100%; min-height: 44px; }
+
+/* ---------------- プレーヤー ---------------- */
+.player {
+  border-top: 1px solid var(--line);
+  background: var(--night-deep);
+  padding: 10px 20px 12px;
+}
+.player-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.player-title { font-weight: 600; font-variant-numeric: tabular-nums; }
+.player-close { width: 40px; height: 40px; display: grid; place-items: center; margin-right: -10px; }
+.player-close svg { width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
+.player-seek { width: 100%; height: 28px; margin: 4px 0 0; accent-color: var(--lamp); }
+.player-times { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.player-ctrl { display: flex; align-items: center; justify-content: center; gap: 28px; margin: 4px 0 10px; }
+.player-skip { min-width: 64px; min-height: 44px; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.player-main {
+  width: 56px; height: 56px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--lamp);
+}
+.player-main svg { width: 20px; height: 20px; fill: #2A1E08; }
+.seg.rate button { min-height: 34px; font-size: 13px; }
+
+/* ---------------- 診断 ---------------- */
+.diag-list { margin: 0 0 8px; padding-left: 18px; font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.diag-log {
+  margin: 0; padding: 8px; max-height: 200px; overflow: auto;
+  background: var(--night-deep); border-radius: 8px;
+  font-size: 11px; line-height: 1.5; color: var(--muted); white-space: pre-wrap; word-break: break-all;
+  -webkit-user-select: text; user-select: text;
+}
+.records { margin-top: 8px; }
+.records .session-row { padding: 14px 0; }
+.records .list-foot { padding: 12px 0 0; text-align: left; }
+.event-span { color: var(--muted); font-weight: 400; }
+
+/* ---------------- 詳細: 上部固定 ---------------- */
+.detail-fixed { flex: none; border-bottom: 1px solid var(--line); padding-bottom: 8px; }
+.detail-fixed .chart-hint { min-height: 18px; }
+.detail-list .pad { padding-top: 12px; }
+
+/* ---------------- プレーヤー（v0.5） ---------------- */
+.player-head { justify-content: flex-start; }
+.player-spacer { flex: 1; }
+.player-icon { width: 40px; height: 40px; display: grid; place-items: center; }
+.player-icon:last-child { margin-right: -10px; }
+.player-icon svg { width: 20px; height: 20px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+#player-save svg { stroke: var(--lamp); }
+.player-ctrl { gap: 10px; justify-content: space-between; max-width: 340px; margin: 4px auto 6px; }
+.player-btn { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 50%; }
+.player-btn svg { width: 26px; height: 26px; fill: none; stroke: var(--text); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.player-btn svg .fill { fill: var(--text); stroke: none; }
+.player-btn svg text { fill: var(--text); stroke: none; font-size: 7.5px; font-weight: 700; font-family: var(--font); }
+.player-btn:disabled { opacity: 0.3; }
+.player-btn:active { background: var(--surface); }
+
+/* ---------------- 凡例・アプリの説明 ---------------- */
+.chart-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 6px; margin: 0; font-size: 12px; color: var(--muted); }
+.lg { display: inline-block; width: 16px; height: 0; vertical-align: middle; margin-left: 8px; }
+.chart-legend .lg:first-child { margin-left: 0; }
+.lg-blue { border-top: 2px solid #8FB3E8; }
+.lg-amber { border-top: 2px solid var(--lamp); }
+.lg-thr { border-top: 2px dashed rgba(236,231,220,0.8); }
+.about { font-size: 14px; line-height: 1.75; }
+.about p { margin: 0 0 8px; }
+.about h3 { font-size: 14px; margin: 16px 0 4px; color: var(--text); }
+.about ol, .about ul { margin: 0; padding-left: 20px; color: var(--muted); }
+.about ul { list-style: none; padding-left: 0; }
+.about li { margin-bottom: 6px; }
+.about li b { color: var(--text); font-weight: 600; }
+.about li .lg { margin: 0 6px 0 0; }

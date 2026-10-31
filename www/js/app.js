@@ -5,13 +5,15 @@
 (function () {
   'use strict';
 
-  var APP_VERSION = '0.5.2';
+  var APP_VERSION = '0.6.0';
   var SENS_LABEL = { low: '低', mid: '中', high: '高' };
   // 感度ごとのしきい値（周囲の音＋何dBで検知するか）。新しい記録は meta.offsetDb に保存された値を使う
   var SENS_OFFSET = window.SleepAnalysis.OFFSET;     // 記録後解析の感度（v0.4.0）
   var REASON_LABEL = { manual: '手動で停止', auto: '時刻で自動終了', limit: '12時間で自動終了', interrupted: '途中で中断', error: 'エラーで終了' };
   var REASON_TAG = { interrupted: '中断', limit: '上限', error: 'エラー' };
   var WEEK = ['日', '月', '火', '水', '木', '金', '土'];
+  // 同意の版。データの取り扱いを変えたら上げ、既存の利用者にも同意画面をもう一度出す（2: v0.6 で一晩分の音声を残すようにした）
+  var CONSENT_VERSION = 2;
 
   var R = null;          // SleepRecorder（実機）またはモック
   var platform = 'browser';
@@ -21,7 +23,7 @@
   var detail = null;     // 表示中のセッション
   var recTicker = null;
   var recStartedAt = 0;
-  var pl = { index: -1, timer: null, dragging: false, last: null }; // 再生中のイベント音声
+  var pl = { mode: null, index: -1, timer: null, dragging: false, last: null, gen: 0, slot: 0 }; // 再生中の音声（openPlayer / playFrom）
 
   function $(id) { return document.getElementById(id); }
 
@@ -47,10 +49,14 @@
     chart = new window.SleepChart($('chart'), { onSelect: selectEvent });
     bindUI();
     $('app-version').textContent = 'バージョン ' + APP_VERSION + '　録音プラグイン ' +
-      (typeof R.saveClip === 'function' ? '0.5（最新）' : pluginIsCurrent() ? '0.4（ビルドし直してください）' : '古い版（ビルドし直してください）');
+      (pluginIsCurrent() ? '0.6（最新）' : typeof R.saveClip === 'function' ? '0.5（ビルドし直してください）' : '古い版（ビルドし直してください）');
     $('android-only').hidden = platform !== 'android';
 
-    if (!settings.consented) { show('consent'); return; }
+    if (!settings.consented || (settings.consentVersion || 1) < CONSENT_VERSION) {
+      $('consent-update').hidden = !settings.consented;
+      show('consent');
+      return;
+    }
     afterConsent();
   }
 
@@ -121,6 +127,7 @@
     $('consent-accept').addEventListener('click', function () {
       settings.consented = true;
       settings.consentedAt = Date.now();
+      settings.consentVersion = CONSENT_VERSION;
       settings.save();
       afterConsent();
     });
@@ -185,7 +192,7 @@
       ul.innerHTML = '';
       box.hidden = list.length === 0;
       $('list-foot').textContent = list.length
-        ? list.length + ' / 30 件を保存しています。音声は最新の記録のみ残ります。'
+        ? list.length + ' / 30 件を保存しています。音声は新しい記録3回分だけ残ります。'
         : '';
       list.forEach(function (m) {
         var li = document.createElement('li');
@@ -227,14 +234,14 @@
     });
   }
 
-  /** ビルドに入っている録音プラグインが v0.4 以降か（画面だけ新しく、プラグインが古いままのビルドを見分ける） */
-  function pluginIsCurrent() { return typeof R.trimAudio === 'function'; }
+  /** ビルドに入っている録音プラグインが v0.6 以降か（画面だけ新しく、プラグインが古いままのビルドを見分ける） */
+  function pluginIsCurrent() { return canCut(); }
 
   function preflight(endValue) {
     // 0. 録音プラグインが古いままのビルドでないか
     var check = pluginIsCurrent() ? Promise.resolve(true) : dialog({
       title: '録音プラグインが古いままです',
-      body: '<p>このアプリに入っている録音プラグインが v0.4 より前のものです。このまま記録すると、新しい方式（一晩録音して、続いた音を残す）では録音されません。</p>' +
+      body: '<p>このアプリに入っている録音プラグインが v0.6 より前のものです。このまま記録すると、一晩分の音声が残らず、好きな時刻から再生できません。</p>' +
         '<p>Monaca でプラグインを入れ直し、カスタムビルドデバッガーをビルドし直してください。</p>',
       actions: [{ label: 'やめる', value: false, kind: 'primary' }, { label: 'このまま始める', value: true }]
     });
@@ -292,10 +299,10 @@
 
       // 4. 空き容量
       chain = chain.then(function (go) {
-        if (!go || st.freeMB >= 100) return go;
+        if (!go || st.freeMB >= 200) return go;
         return dialog({
           title: '空き容量が少なくなっています',
-          body: '<p>空き容量は約' + st.freeMB + 'MBです。記録を保存できない場合があります。</p>',
+          body: '<p>空き容量は約' + st.freeMB + 'MBです。一晩の記録には最大で約130MBを使うため、保存できない場合があります。</p>',
           actions: [{ label: 'このまま始める', value: true, kind: 'primary' }, { label: 'やめる', value: false }]
         });
       });
@@ -418,40 +425,63 @@
   function sessionRowHtml(m) {
     var st = new Date(m.startedAt), en = new Date(m.endedAt);
     var tag = REASON_TAG[m.endReason] ? '<span class="session-tag">' + REASON_TAG[m.endReason] + '</span>' : '';
+    var count = sessionCount(m);
     return '<span class="session-date">' + fmtDate(st) + tag + '</span>' +
-      ((m.algo || 1) >= 3 && m.audio !== 'full'
-        ? '<span class="session-count"><b>' + (m.eventCount || 0) + '</b><small>か所</small></span>'
+      (count != null
+        ? '<span class="session-count"><b>' + count + '</b><small>か所</small></span>'
         : '<span class="session-count"><b>—</b><small></small></span>') +
       '<span class="session-span">' + fmtClock(st) + '〜' + fmtClock(en) + '（' + fmtDuration(m.durationSec) + '）</span>';
   }
 
-  // ---------------------------------------------------------------- 詳細
-
-  /** 一晩分の音声が残っている記録を解析し、大きめの音が続いた時間帯だけ音声を残す */
-  var trimming = null;
-  function processPendingAudio() {
-    if (trimming) return trimming;
-    trimming = R.listSessions().then(function (list) {
-      return list.filter(function (m) { return m.audio === 'full'; }).reduce(function (p, m) {
-        return p.then(function () { return trimSession(m.id); });
-      }, Promise.resolve());
-    }).catch(function () {}).then(function () { trimming = null; });
-    return trimming;
+  /** 一覧に出す「○か所」。v0.6 以降は今の感度の数、v0.5 は切り出したときの数。未解析は null */
+  function sessionCount(m) {
+    var counts = m.analysis && m.analysis.counts;
+    if (counts && counts[settings.sensitivity] != null) return counts[settings.sensitivity];
+    if ((m.algo || 1) >= 3 && m.audio !== 'full') return m.eventCount || 0;
+    return null;
   }
 
-  function trimSession(id) {
+  // ---------------------------------------------------------------- 記録後の解析
+
+  /** まだ解析していない記録を解析する（v0.6 以降は一晩分の音声をそのまま残す） */
+  var analyzing = null;
+  function processPendingAudio() {
+    if (analyzing) return analyzing;
+    analyzing = R.listSessions().then(function (list) {
+      return list.filter(function (m) { return m.audio === 'full' && !m.analysis; }).reduce(function (p, m) {
+        return p.then(function () { return analyzeSession(m.id); });
+      }, Promise.resolve());
+    }).catch(function () {}).then(function () { analyzing = null; });
+    return analyzing;
+  }
+
+  function analyzeSession(id) {
     return R.getSession(id).then(function (s) {
-      if (s.meta.audio !== 'full') return;
+      if (s.meta.audio !== 'full' || s.meta.analysis) return;
       var values = decodeGraph(s.graph);
-      var offset = SENS_OFFSET[s.meta.sensitivity] != null ? SENS_OFFSET[s.meta.sensitivity] : SENS_OFFSET.mid;
-      var a = window.SleepAnalysis.analyze(values, offset);
-      var ranges = window.SleepAnalysis.clipRanges(a.segments, values.length);
-      return R.trimAudio(id, ranges, { sensitivity: s.meta.sensitivity, offsetDb: offset, algo: 3 });
+      var sens = SENS_OFFSET[s.meta.sensitivity] != null ? s.meta.sensitivity : 'mid';
+      // 録音プラグインが v0.6 より前なら、以前どおり時間帯だけ切り出して残す
+      if (!canCut()) {
+        var a = window.SleepAnalysis.analyze(values, SENS_OFFSET[sens]);
+        var ranges = window.SleepAnalysis.clipRanges(a.segments, values.length);
+        return R.trimAudio(id, ranges, { sensitivity: sens, offsetDb: SENS_OFFSET[sens], algo: 3 });
+      }
+      // 感度を変えても一覧の「○か所」がすぐ出るよう、3つの感度すべての数を残す
+      var counts = {};
+      Object.keys(SENS_OFFSET).forEach(function (k) { counts[k] = window.SleepAnalysis.analyze(values, SENS_OFFSET[k]).segments.length; });
+      return R.saveAnalysis(id, { algo: 3, sensitivity: sens, offsetDb: SENS_OFFSET[sens], counts: counts, eventCount: counts[sens] });
     });
   }
 
+  /** 一晩分の音声から好きな範囲を切り出せる録音プラグイン（v0.6 以降）か */
+  function canCut() { return typeof R.cutClip === 'function' && typeof R.saveAnalysis === 'function'; }
+
+  // ---------------------------------------------------------------- 詳細
+
   // サンプルの記録（sample.js）。審査や初めての利用者が、記録しなくても記録の画面を確認できるようにする
   var SAMPLE_ID = 'sample';
+  var CLIP_PAD = 5;          // 時間帯の再生は前後5秒を含める
+  var CHUNK_SEC = 30 * 60;   // 好きな時刻からの再生は30分ずつ切り出して、続けて再生する
 
   function openDetail(id) {
     show('detail');
@@ -459,24 +489,26 @@
     $('detail-summary').innerHTML = '';
     $('event-list').innerHTML = '';
     $('audio-note').textContent = '';
+    setPick(null);
     var load = id === SAMPLE_ID ? Promise.resolve(window.SleepSample.demo()) : R.getSession(id).then(function (s) {
-      if (s.meta.audio !== 'full') return s;
-      $('audio-note').textContent = '音声を整理しています…';
-      return trimSession(id).then(function () { return R.getSession(id); });
+      if (s.meta.audio !== 'full' || s.meta.analysis) return s;
+      $('audio-note').textContent = '記録を整理しています…';
+      return analyzeSession(id).then(function () { return R.getSession(id); });
     });
     load.then(function (s) {
       var m = s.meta;
       var st = new Date(m.startedAt), en = new Date(m.endedAt);
       var values = decodeGraph(s.graph);
 
-      // 音声を切り出したときの感度で解析すると、時間帯と音声が一致する。
-      // それ以外（音声なし）は今の設定の感度で解析する
+      // v0.5 で時間帯だけ切り出した記録は、切り出したときの感度で解析すると時間帯と音声が一致する。
+      // それ以外（一晩分の音声あり・音声なし）は今の設定の感度で解析する
       var info = s.segments && s.segments.info;
       var sensKey = info && info.sensitivity ? info.sensitivity : settings.sensitivity;
       var offset = info && info.offsetDb != null ? info.offsetDb : SENS_OFFSET[settings.sensitivity];
       var a = window.SleepAnalysis.analyze(values, offset);
       var clips = (s.segments && s.segments.segments) || [];
-      var hasAudio = m.audio === 'segments' && clips.length > 0;
+      var hasFull = m.audio === 'full' && canCut();
+      var hasClips = m.audio === 'segments' && clips.length > 0;
       // 以前の方式（v0.3 以前のプラグイン）で録音し、検知した音の音声が残っている場合はそれを使う
       var legacy = (m.algo || 1) < 3 && m.hasAudio && (s.events || []).some(function (e) { return e.clip; });
       if (legacy) {
@@ -488,10 +520,18 @@
       }
       a.segments.forEach(function (seg) {
         if (legacy) return;
+        if (hasFull) {
+          // 再生するときに一晩分の音声から切り出す
+          seg.cut = true;
+          seg.clip = 'cut';
+          seg.clipStart = Math.max(0, seg.start - CLIP_PAD);
+          seg.clipEnd = Math.min(values.length, seg.end + CLIP_PAD);
+          return;
+        }
         var c = clips.filter(function (x) { return x.start <= seg.start && x.end >= seg.end; })[0];
-        if (c && hasAudio) { seg.clip = c.clip; seg.clipStart = c.start; }
+        if (c && hasClips) { seg.clip = c.clip; seg.clipStart = c.start; }
       });
-      detail = { meta: m, segments: a.segments };
+      detail = { meta: m, segments: a.segments, total: values.length, full: hasFull };
 
       var total = a.segments.reduce(function (t, x) { return t + x.dur; }, 0);
       $('detail-title').textContent = m.sample ? 'サンプルの記録' : fmtDate(st) + 'の記録';
@@ -506,19 +546,26 @@
       document.querySelectorAll('[data-window]').forEach(function (x) { x.classList.toggle('on', x.dataset.window === '0'); });
       $('chart-hint').hidden = true;
       chart.windowSec = 0;
+      chart.onPick = hasFull ? setPick : null;
       chart.setData({ values: values, startedAt: m.startedAt, events: a.segments, thr: a.thr, level: a.level });
 
       $('audio-note').textContent = m.sample
-        ? 'これは表示の例として作ったサンプルの記録で、音声はありません。実際の記録では、時間帯ごとに再生ボタンで音を聞けます。'
+        ? 'これは表示の例として作ったサンプルの記録で、音声はありません。実際の記録では、グラフの好きな位置をタップしてその時刻から音を聞いたり、時間帯ごとに再生ボタンで聞いたりできます。'
+        : hasFull
+        ? 'グラフの好きな位置をタップすると、その時刻から続けて再生できます。' +
+          (a.segments.length ? '再生ボタンでは、その時間帯の音を聞けます（前後5秒を含む）。' : '大きめの音が続いた時間帯はありませんでした。') +
+          '音声は新しい記録3回分だけ残ります。'
         : !a.segments.length
         ? '大きめの音が続いた時間帯はありませんでした。'
         : legacy
           ? 'この記録は以前の方式（記録中に検知）で録音したため、そのとき検知した音を表示しています。'
-          : hasAudio
-          ? '再生ボタンで、その時間帯の音を聞けます（前後5秒を含む）。音声は最新の記録のみ残ります。'
-          : (m.algo || 1) >= 3
-            ? '音声は最新の記録のみ残すため、この記録はグラフのみです。'
-            : 'この記録は以前の方式で録音したため、時間帯の音声はありません。';
+          : hasClips
+          ? '再生ボタンで、その時間帯の音を聞けます（前後5秒を含む）。'
+          : m.audio === 'full'
+            ? '録音プラグインが古いため、この記録の音声を再生できません。ビルドし直してください。'
+            : (m.algo || 1) >= 3
+              ? '音声は新しい記録3回分だけ残すため、この記録はグラフのみです。'
+              : 'この記録は以前の方式で録音したため、時間帯の音声はありません。';
       renderEvents(detail);
     }).catch(function () {
       toast('記録を読み込めませんでした');
@@ -562,62 +609,160 @@
     }
   }
 
-  // ---------------------------------------------------------------- 再生（プレーヤー）
+  /** グラフでタップした時刻（再生を始める位置）。null で消す */
+  function setPick(sec) {
+    $('pick-play').hidden = sec == null;
+    if (sec == null) { if (chart) chart.setCursor(null); return; }
+    $('pick-label').textContent = clockAt(sec) + ' から再生';
+  }
 
-  function openPlayer(i) {
-    if (pl.index === i && pl.last && pl.last.loaded) { togglePause(); return; }
+  // ---------------------------------------------------------------- 再生（プレーヤー）
+  //
+  // event: 一覧の時間帯を再生（前後5秒を含む）。その時間帯の終わりで止まる
+  // free : グラフで選んだ時刻から再生。30分ずつ切り出し、終わりが近づいたら次を用意して記録の最後まで続ける
+
+  function clockAt(sec) { return fmtClock(new Date(detail.meta.startedAt + sec * 1000), true); }
+
+  /** 切り出しに使うファイル名。再生中のファイルを上書きしないよう2つを交互に使う */
+  function nextSlot() { pl.slot = pl.slot === 1 ? 2 : 1; return 'play' + pl.slot + '.aac'; }
+
+  function cut(start, end) { return R.cutClip(detail.meta.id, start, end, nextSlot()); }
+
+  /** プレーヤーを開いて再生を始める。load は { clip, start, end } を返す Promise */
+  function startClip(mode, index, load, title) {
     stopPlayback();
-    var e = detail.segments[i];
-    if (!e.clip) { toast('この時間帯の音声はありません'); return; }
-    selectEvent(i, true);
-    var t = new Date(detail.meta.startedAt + e.start * 1000);
-    $('player-title').textContent = fmtClock(t, true) + ' からの ' + fmtSeconds(e.dur);
-    $('player-pos').textContent = '0:00';
+    var gen = pl.gen;
+    $('player-title').textContent = title;
+    $('player-pos').textContent = mode === 'free' ? title.replace(' から', '') : '0:00';
     $('player-dur').textContent = '';
     $('player-seek').value = 0;
     $('player').hidden = false;
-    updateNavButtons(i);
-    R.playClip(detail.meta.id, e.clip, { rate: 1 }).then(function (st) {
-      pl.index = i;
-      applyState(st);
-      pl.timer = setInterval(pollPlayer, 250);
+    return load.then(function (c) {
+      if (gen !== pl.gen) return;
+      return R.playClip(detail.meta.id, c.clip, { rate: 1 }).then(function (st) {
+        if (gen !== pl.gen) return;
+        pl.mode = mode;
+        pl.index = index;
+        pl.clip = c.clip;
+        pl.base = c.start;
+        pl.chunkEnd = c.end;
+        updateNavButtons();
+        applyState(st);
+        pl.timer = setInterval(pollPlayer, 250);
+      });
     }).catch(function (err) {
+      if (gen !== pl.gen) return;
       $('player').hidden = true;
       toast(String(err || '音声を再生できませんでした'));
     });
   }
 
+  function openPlayer(i) {
+    if (pl.mode === 'event' && pl.index === i && pl.last && pl.last.loaded) { togglePause(); return; }
+    var e = detail.segments[i];
+    if (!e.clip) { toast('この時間帯の音声はありません'); return; }
+    selectEvent(i, true);
+    var title = clockAt(e.start) + ' からの ' + fmtSeconds(e.dur);
+    var load = e.cut ? cut(e.clipStart, e.clipEnd) : Promise.resolve({ clip: e.clip, start: e.clipStart, end: null });
+    startClip('event', i, load, title);
+  }
+
+  /** sec（記録開始からの秒）から、記録の最後まで続けて再生する */
+  function playFrom(sec, origin) {
+    sec = Math.max(0, Math.min(detail.total - 1, sec));
+    var p = startClip('free', -1, cut(sec, Math.min(detail.total, sec + CHUNK_SEC)), clockAt(sec) + ' から');
+    pl.origin = origin != null ? origin : sec;
+    return p;
+  }
+
+  /** free の再生中に、記録全体の中の位置 sec へ移る（今の30分の外なら切り出し直す） */
+  function seekAbs(sec) {
+    sec = Math.max(0, Math.min(detail.total - 1, sec));
+    if (sec >= pl.base && sec < pl.chunkEnd - 1) { R.seekClip(sec - pl.base).then(applyState); return; }
+    var paused = pl.last && !pl.last.playing && !pl.last.ended;
+    playFrom(sec, pl.origin).then(function () {
+      // 一時停止中に動かしたときは、一時停止のままにする
+      if (paused && pl.mode) R.pauseClip().then(applyState);
+    });
+  }
+
   function pollPlayer() { R.getClipState().then(applyState).catch(function () {}); }
 
+  function posAbs() { return pl.base + (pl.last ? pl.last.position : 0); }
+
   function applyState(st) {
-    if (pl.index < 0) return;
+    if (!pl.mode) return;
     pl.last = st;
     if (!st || !st.loaded) return;
-    var e = detail.segments[pl.index];
-    var dur = st.duration || (e.dur + 10);
-    var seek = $('player-seek');
-    seek.max = Math.max(1, Math.round(dur * 10));
-    if (!pl.dragging) {
-      seek.value = Math.round(st.position * 10);
-      $('player-pos').textContent = fmtTime(st.position);
+    var seek = $('player-seek'), abs = pl.base + st.position;
+    if (pl.mode === 'free') {
+      // シークバーは記録全体。時刻で表示する
+      seek.max = Math.max(1, Math.round(detail.total * 10));
+      if (!pl.dragging) {
+        seek.value = Math.round(abs * 10);
+        $('player-pos').textContent = clockAt(abs);
+      }
+      $('player-dur').textContent = clockAt(detail.total);
+      continueFree(st);
+    } else {
+      var e = detail.segments[pl.index];
+      var dur = st.duration || (e.dur + 10);
+      seek.max = Math.max(1, Math.round(dur * 10));
+      if (!pl.dragging) {
+        seek.value = Math.round(st.position * 10);
+        $('player-pos').textContent = fmtTime(st.position);
+      }
+      $('player-dur').textContent = fmtTime(dur);
     }
-    $('player-dur').textContent = fmtTime(dur);
+    var playing = st.playing || pl.switching;
     var tg = $('player-toggle');
-    tg.innerHTML = st.playing ? PAUSE_ICON : PLAY_ICON;
-    tg.setAttribute('aria-label', st.playing ? '一時停止' : '再生');
-    setRowPlaying(pl.index, st.playing);
-    // グラフ上の再生位置（音声ファイルの先頭は clipStart 秒）
-    chart.setPlayhead(e.clipStart + st.position);
+    tg.innerHTML = playing ? PAUSE_ICON : PLAY_ICON;
+    tg.setAttribute('aria-label', playing ? '一時停止' : '再生');
+    setRowPlaying(pl.mode === 'event' ? pl.index : -1, st.playing);
+    chart.setPlayhead(abs);
+  }
+
+  /** free: 終わりの20秒前に次の30分を切り出しておき、終わったらすぐ続きを再生する */
+  function continueFree(st) {
+    if (pl.chunkEnd >= detail.total || pl.switching) return;
+    var gen = pl.gen;
+    if (!pl.next && !pl.fetching && st.duration && st.position >= st.duration - 20) {
+      pl.fetching = true;
+      cut(pl.chunkEnd, Math.min(detail.total, pl.chunkEnd + CHUNK_SEC)).then(function (c) {
+        if (gen !== pl.gen) return;
+        pl.fetching = false;
+        pl.next = c;
+      }).catch(function () { if (gen === pl.gen) pl.fetching = false; });
+    }
+    if (st.ended && pl.next) {
+      var next = pl.next;
+      pl.next = null;
+      pl.switching = true;
+      R.playClip(detail.meta.id, next.clip, { rate: 1 }).then(function (s2) {
+        if (gen !== pl.gen) return;
+        pl.switching = false;
+        pl.clip = next.clip;
+        pl.base = next.start;
+        pl.chunkEnd = next.end;
+        applyState(s2);
+      }).catch(function () {
+        if (gen !== pl.gen) return;
+        pl.switching = false;
+        toast('続きを再生できませんでした');
+      });
+    }
   }
 
   function togglePause() {
     var st = pl.last;
     if (!st || !st.loaded) return;
+    if (pl.mode === 'free' && st.ended && pl.chunkEnd >= detail.total) { seekAbs(pl.origin); return; }
     (st.playing ? R.pauseClip() : R.resumeClip()).then(applyState);
   }
 
   function skip(delta) {
     if (!pl.last) return;
+    if (pl.mode === 'free') { seekAbs(posAbs() + delta); return; }
     R.seekClip(Math.max(0, pl.last.position + delta)).then(applyState);
   }
 
@@ -629,43 +774,63 @@
     return -1;
   }
 
-  function updateNavButtons(i) {
-    $('player-next').disabled = clipIndex(i, 1) < 0;
+  /** free: sec より後（dir=1）／前（dir=-1）に始まる時間帯。なければ -1 */
+  function segmentNear(sec, dir) {
+    var s = detail.segments, k;
+    if (dir > 0) { for (k = 0; k < s.length; k++) if (s[k].start - CLIP_PAD > sec + 1) return k; }
+    else { for (k = s.length - 1; k >= 0; k--) if (s[k].start - CLIP_PAD < sec - 3) return k; }
+    return -1;
   }
 
-  // 「最初に戻す」: 1回目で先頭へ。続けてもう1回（0.4秒以内）で前の時間帯へ
+  function updateNavButtons() {
+    $('player-next').disabled = pl.mode === 'event' && clipIndex(pl.index, 1) < 0;
+  }
+
+  // 「最初に戻す」: 1回目で先頭（free は再生を始めた時刻）へ。続けてもう1回（0.4秒以内）で前の時間帯へ
   var lastRestartTap = 0;
   function onRestart() {
     var now = Date.now();
     var dbl = now - lastRestartTap < 400;
     lastRestartTap = now;
-    if (pl.index < 0) return;
+    if (!pl.mode) return;
     if (dbl) {
       lastRestartTap = 0;
+      if (pl.mode === 'free') {
+        var k = segmentNear(posAbs(), -1);
+        if (k >= 0) seekAbs(detail.segments[k].start - CLIP_PAD);
+        else toast('前の時間帯はありません');
+        return;
+      }
       var prev = clipIndex(pl.index, -1);
       if (prev >= 0) openPlayer(prev);
       else toast('前の時間帯はありません');
       return;
     }
+    if (pl.mode === 'free') { seekAbs(pl.origin); return; }
     R.seekClip(0).then(applyState);
   }
 
   function onNext() {
+    if (pl.mode === 'free') {
+      var k = segmentNear(posAbs(), 1);
+      if (k >= 0) seekAbs(detail.segments[k].start - CLIP_PAD);
+      else toast('この後に続いた音はありません');
+      return;
+    }
     if (pl.index < 0) return;
     var next = clipIndex(pl.index, 1);
     if (next >= 0) openPlayer(next);
   }
 
-  /** 再生中の時間帯の音声を端末に保存する（iOS は共有シートから「ファイルに保存」） */
+  /** 再生中の音声を端末に保存する（iOS は共有シートから「ファイルに保存」）。free は再生中の30分 */
   function saveCurrentClip() {
-    if (pl.index < 0) return;
-    var e = detail.segments[pl.index];
-    var t = new Date(detail.meta.startedAt + (e.clipStart != null ? e.clipStart : e.start) * 1000);
-    var ext = /\.m4a$/.test(e.clip) ? '.m4a' : '.aac';
+    if (!pl.mode || !pl.clip) return;
+    var t = new Date(detail.meta.startedAt + pl.base * 1000);
+    var ext = /\.m4a$/.test(pl.clip) ? '.m4a' : '.aac';
     var name = 'nemuri_' + t.getFullYear() + pad2(t.getMonth() + 1) + pad2(t.getDate()) + '_' +
       pad2(t.getHours()) + pad2(t.getMinutes()) + pad2(t.getSeconds()) + ext;
     if (typeof R.saveClip !== 'function') { toast('録音プラグインが古いため保存できません。ビルドし直してください'); return; }
-    R.saveClip(detail.meta.id, e.clip, name).then(function (r) {
+    R.saveClip(detail.meta.id, pl.clip, name).then(function (r) {
       if (r && r.method === 'saved') toast('「' + (r.path || name) + '」に保存しました');
       else if (r && r.completed) toast('保存しました');
     }).catch(function (err) { toast(String(err || '保存できませんでした')); });
@@ -674,9 +839,15 @@
   function stopPlayback() {
     clearInterval(pl.timer);
     pl.timer = null;
-    if (pl.index >= 0) { setRowPlaying(pl.index, false); R.stopClip(); }
+    pl.gen++;
+    if (pl.mode) { setRowPlaying(-1, false); R.stopClip(); }
+    pl.mode = null;
     pl.index = -1;
     pl.last = null;
+    pl.clip = null;
+    pl.next = null;
+    pl.fetching = false;
+    pl.switching = false;
     $('player').hidden = true;
     if (chart) chart.setPlayhead(null);
   }
@@ -699,14 +870,16 @@
     $('player-next').addEventListener('click', onNext);
     $('player-save').addEventListener('click', saveCurrentClip);
     $('player-close').addEventListener('click', stopPlayback);
+    $('pick-play').addEventListener('click', function () { if (chart.cursor != null) playFrom(chart.cursor); });
     var seek = $('player-seek');
     seek.addEventListener('input', function () {
       pl.dragging = true;
-      $('player-pos').textContent = fmtTime(seek.value / 10);
+      $('player-pos').textContent = pl.mode === 'free' ? clockAt(seek.value / 10) : fmtTime(seek.value / 10);
     });
     seek.addEventListener('change', function () {
       pl.dragging = false;
-      R.seekClip(seek.value / 10).then(applyState);
+      if (pl.mode === 'free') seekAbs(seek.value / 10);
+      else R.seekClip(seek.value / 10).then(applyState);
     });
   }
 

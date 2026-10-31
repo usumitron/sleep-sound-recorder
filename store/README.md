@@ -4,7 +4,7 @@
 
 | ファイル | 内容 |
 |---|---|
-| `privacy-policy.html` | プライバシーポリシーの公開用ページ。アプリ内の文面（`www/index.html` の `policy-template`）をもとにしている。どちらかを変えたら、もう一方も合わせる |
+| `privacy-policy.html` | プライバシーポリシーの公開用ページ（2026-10-31 改定: 一晩分の音声を3回分残すように変更）。アプリ内の文面（`www/index.html` の `policy-template`）をもとにしている。どちらかを変えたら、もう一方も合わせる |
 | `screenshots/` | App Store 用スクリーンショット（6.9インチ: 1320×2868）。`tools/store-screenshots.js` で作り直せる |
 
 ## プライバシーポリシーの公開
@@ -29,7 +29,7 @@ NODE_PATH=<作業用フォルダ>/node_modules node tools/store-screenshots.js [
 > This app records sounds such as snoring or sleep talking during the night and shows when loud sounds continued.
 > Recordings shorter than 10 minutes are not saved, so a real recording cannot be checked quickly.
 > To see the result screen right away, tap "サンプルの記録を表示" (Show sample record) on the Home screen. It shows a graph and the detected time ranges made from synthetic data (no audio).
-> To test recording: tap "記録を始める" (Start), allow microphone access, wait at least 10 minutes, then press and hold "長押しで停止" (Hold to stop). The detected time ranges with audio playback will be shown.
+> To test recording: tap "記録を始める" (Start), allow microphone access, wait at least 10 minutes, then press and hold "長押しで停止" (Hold to stop). The detected time ranges are listed with playback buttons, and tapping anywhere on the graph lets you play the recording from that time.
 > Background audio (UIBackgroundModes: audio) is used only to keep recording from the microphone while the screen is off during the night. No data leaves the device. No login is required.
 > This app is not a medical device and does not diagnose any condition.
 
@@ -57,7 +57,8 @@ Google Play Console の「フォアグラウンドサービスの権限」で、
 
 - [ ] 充電しながら、設定した時刻まで記録が続き「時刻で自動終了」になる
 - [ ] 充電せずに記録したときのバッテリーの減り方（目安を記録しておく）
-- [ ] 翌朝アプリを開くと「音声を整理しています…」の後、時間帯ごとに再生できる
-- [ ] 設定画面の一番下が「録音プラグイン 0.5（最新）」になっている（新しいネイティブで録音されたかは、詳細画面の感度表示ではなく meta.algo === 3 で判断する）
+- [ ] 翌朝アプリを開くと、時間帯ごとに再生できる。グラフの好きな位置をタップして、その時刻から再生できる
+- [ ] 好きな時刻からの再生が30分の切れ目で止まらずに続く（途切れはわずかか）。後半（6時間目以降）でもグラフの再生位置と音がずれていない
+- [ ] 設定画面の一番下が「録音プラグイン 0.6（最新）」になっている（新しいネイティブで録音されたかは、詳細画面の感度表示ではなく meta.algo === 3 で判断する）
 - [ ] 途中で他のアプリの音を鳴らしたときに「途中で中断」として保存される
-- [ ] 端末の空き容量が記録前後で大きく減っていない（音声は時間帯の分だけ残る）
+- [ ] 4回目の記録を保存すると、4つ前の記録の音声が消えてグラフのみになる（空き容量の増え方は1回あたり約11MB／時間）

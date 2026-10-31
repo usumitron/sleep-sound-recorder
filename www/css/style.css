@@ -80,6 +80,7 @@ input { font: inherit; color: inherit; }
 /* ---------------- 同意画面 ---------------- */
 .consent-title { font-size: 28px; font-weight: 600; line-height: 1.4; margin: 40px 0 12px; letter-spacing: 0.04em; }
 .lead { font-size: 16px; margin: 0 0 24px; }
+.notice { font-size: 14px; margin: 0 0 20px; padding: 12px 14px; border: 1px solid var(--lamp); border-radius: 12px; background: var(--lamp-soft); }
 .consent-list { margin: 0 0 24px; }
 .consent-list dt { font-weight: 600; margin-top: 18px; }
 .consent-list dd { margin: 4px 0 0; color: var(--muted); font-size: 15px; }
@@ -197,6 +198,13 @@ input { font: inherit; color: inherit; }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button.on { background: var(--surface); color: var(--text); font-weight: 600; }
 .chart-hint { font-size: 12px; margin: 0; }
+.pick-play {
+  display: flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 40px; border: 1px solid var(--lamp); border-radius: 10px;
+  font-weight: 600; font-variant-numeric: tabular-nums;
+}
+.pick-play[hidden] { display: none; }
+.pick-play svg { width: 14px; height: 14px; fill: var(--lamp); }
 
 .event-list { list-style: none; margin: 0 0 32px; padding: 0; }
 .event-row {

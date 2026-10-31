@@ -42,7 +42,8 @@ var SleepRecorder = {
 
   /**
    * { meta, graph: base64(int16LE, 0.1dB単位, 1秒刻み), segments: segments.json の内容 | null }
-   * meta.audio: 'full'（一晩分の音声あり・解析待ち） / 'segments'（切り出し済み） / 'none'
+   * meta.audio: 'full'（一晩分の音声あり） / 'segments'（切り出し済み。v0.5 で記録したもの） / 'none'
+   * meta.analysis: saveAnalysis で保存した解析結果（未解析なら無し）
    */
   getSession: function (id) { return call('getSession', [id]); },
 
@@ -51,6 +52,15 @@ var SleepRecorder = {
    * info（感度など）は segments.json に保存される。→ { info, segments: [{start, end, clip}] }
    */
   trimAudio: function (id, ranges, info) { return call('trimAudio', [id, ranges, info || {}]); },
+
+  /**
+   * 一晩分の音声（full.aac）から start〜end 秒を clips/<name> に書き出す（v0.6）。full.aac は残す。
+   * name は 'play' で始まり '.aac' で終わる名前。→ { start, end, clip }。以降は playClip / saveClip で扱う
+   */
+  cutClip: function (id, start, end, name) { return call('cutClip', [id, start, end, name || 'play1.aac']); },
+
+  /** 記録後の解析結果を meta.analysis に保存する（v0.6）。info.eventCount は meta.eventCount にも入る */
+  saveAnalysis: function (id, info) { return call('saveAnalysis', [id, info || {}]); },
 
   deleteAll: function () { return call('deleteAll'); },
 

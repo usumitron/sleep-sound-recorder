@@ -3,6 +3,7 @@
  * - 1秒刻みのデータを、画面の1ピクセルごとに最大値・最小値へ間引いて描く（ピークは消えない）
  * - 検知した音の区間を琥珀色で重ねる
  * - 破線は検知のしきい値（周囲の音の中央値＋感度）
+ * - 区間以外をタップすると、その時刻にカーソル（再生を始める位置）を置く（onPick）
  */
 (function () {
   'use strict';
@@ -17,7 +18,8 @@
     eventMark: '#F2B656',
     thr: 'rgba(236,231,220,0.8)',
     level: 'rgba(242,182,86,0.85)',
-    playhead: '#ECE7DC'
+    playhead: '#ECE7DC',
+    cursor: '#8FB3E8'
   };
   var M = { left: 44, right: 12, top: 14, bottom: 26 };
   var TICK_STEPS = [10, 30, 60, 300, 900, 1800, 3600, 7200]; // 秒
@@ -28,6 +30,8 @@
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.onSelect = (opts && opts.onSelect) || function () {};
+    this.onPick = (opts && opts.onPick) || null;   // 区間以外をタップしたとき（秒）。null ならカーソルを置かない
+    this.cursor = null;
     this.values = new Int16Array(0);
     this.events = [];
     this.thr = null;
@@ -47,6 +51,7 @@
     this.selected = -1;
     this.v0 = 0;
     this.playhead = null;
+    this.cursor = null;
     this.level = d.level || null;      // 20秒平均の音量（判定に使う値）
     this.thr = d.thr || (d.offsetDb != null
       ? ((d.algo || 1) >= 2 ? computeThresholdV2(d.values, d.offsetDb) : computeThreshold(d.values, this.events, d.offsetDb))
@@ -84,6 +89,12 @@
         this._clamp();
       }
     }
+    this.draw();
+  };
+
+  /** 再生を始める位置のカーソル（セッション開始からの秒）。null で消す */
+  SleepChart.prototype.setCursor = function (sec) {
+    this.cursor = sec;
     this.draw();
   };
 
@@ -243,6 +254,16 @@
       ctx.stroke();
     }
 
+    // 再生を始める位置（点線）
+    if (this.cursor != null && this.cursor >= v0 && this.cursor <= v0 + span) {
+      var cxp = Math.round(X(this.cursor)) + 0.5;
+      ctx.strokeStyle = COLORS.cursor;
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(cxp, M.top); ctx.lineTo(cxp, M.top + ph); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
     // 再生位置
     if (this.playhead != null && this.playhead >= v0 && this.playhead <= v0 + span) {
       var px = Math.round(X(this.playhead)) + 0.5;
@@ -285,6 +306,11 @@
           if (sec >= e.start - tol && sec <= e.end + tol) { hit = i; break; }
         }
         if (hit >= 0) { self.select(hit, false); self.onSelect(hit); }
+        else if (self.onPick && sec >= 0 && sec < self.values.length) {
+          self.cursor = Math.floor(sec);
+          self.draw();
+          self.onPick(self.cursor);
+        }
       }
       downX = null;
       self._dragging = false;

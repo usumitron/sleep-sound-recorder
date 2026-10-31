@@ -25,13 +25,18 @@ final class AudioTrimmer {
      * @return [{start, end, clip}]（音声を書き出せた範囲のみ）
      */
     static JSONArray trim(File full, File outDir, JSONArray ranges, int sampleRate) throws IOException, JSONException {
+        return trim(full, outDir, ranges, sampleRate, null);
+    }
+
+    /** @param fileNames 書き出すファイル名（null なら seg_0001.aac 〜） */
+    static JSONArray trim(File full, File outDir, JSONArray ranges, int sampleRate, String[] fileNames) throws IOException, JSONException {
         int n = ranges.length();
         double[] st = new double[n], en = new double[n];
         String[] names = new String[n];
         for (int i = 0; i < n; i++) {
             st[i] = ranges.getJSONObject(i).getDouble("start");
             en[i] = ranges.getJSONObject(i).getDouble("end");
-            names[i] = String.format(java.util.Locale.US, "seg_%04d.aac", i + 1);
+            names[i] = fileNames != null ? fileNames[i] : String.format(java.util.Locale.US, "seg_%04d.aac", i + 1);
         }
         boolean[] written = new boolean[n];
 

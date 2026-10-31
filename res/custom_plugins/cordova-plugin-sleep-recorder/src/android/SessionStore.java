@@ -25,12 +25,14 @@ import java.util.List;
  * sessions/<id>/meta.json     セッション情報
  * sessions/<id>/graph.bin     1秒値（int16LE, 0.1dB単位）
  * sessions/<id>/segments.json 大きな音が続いた時間帯と音声ファイル（記録後の解析で作成）
- * sessions/<id>/clips/        音声（最新の保存セッションのみ）
- *                               full.aac   記録中の一晩分（解析後に削除）
+ * sessions/<id>/clips/        音声（最新の保存セッション3件のみ）
+ *                               full.aac   一晩分（v0.6 以降は残す）
+ *                               play*.aac  再生のためにその都度切り出した音声（cutClip）
  *                               seg_*.aac  時間帯ごとに切り出した音声
  */
 final class SessionStore {
     static final int MAX_SESSIONS = 30;
+    static final int AUDIO_SESSIONS = 3;   // 一晩分の音声を残す件数（新しい順）
     static final int MIN_DURATION_SEC = 600;
 
     static File root(Context ctx) {
@@ -60,7 +62,7 @@ final class SessionStore {
             meta.put("endReason", JSONObject.NULL);
             meta.put("sensitivity", sensitivity);
             meta.put("algo", 3);
-            meta.put("audio", "full");   // full: 解析待ち / segments: 切り出し済み / none: 音声なし
+            meta.put("audio", "full");   // full: 一晩分あり / segments: 切り出し済み（v0.5） / none: 音声なし
             meta.put("plannedEndAt", plannedEndAt);
             meta.put("eventCount", 0);
             meta.put("maxDb", JSONObject.NULL);
@@ -146,7 +148,7 @@ final class SessionStore {
         }
     }
 
-    /** 音声は最新の保存セッションのみ残す。件数は30件まで。 */
+    /** 音声は最新の保存セッション3件のみ残す。件数は30件まで。 */
     static void applyRetention(Context ctx) {
         List<JSONObject> done = finishedMetas(ctx);
         for (int i = 0; i < done.size(); i++) {
@@ -155,7 +157,7 @@ final class SessionStore {
             if (i >= MAX_SESSIONS) {
                 log(ctx, "retention: delete oldest " + m.optString("id"));
                 deleteRecursive(d);
-            } else if (i > 0 && m.optBoolean("hasAudio")) {
+            } else if (i >= AUDIO_SESSIONS && m.optBoolean("hasAudio")) {
                 deleteRecursive(new File(d, "clips"));
                 try {
                     m.put("hasAudio", false);
@@ -244,6 +246,28 @@ final class SessionStore {
         writeMeta(d, meta);
         log(ctx, "trim " + id + ": " + segs.length() + " segments");
         return out;
+    }
+
+    /** 一晩分の音声から start〜end 秒を name に書き出す（再生・保存用。full.aac は残す） */
+    static synchronized JSONObject cut(Context ctx, String id, double start, double end, String name) throws Exception {
+        File clips = new File(dir(ctx, id), "clips");
+        File full = new File(clips, "full.aac");
+        if (!full.exists()) throw new IOException("この記録の音声は残っていません");
+        File out = new File(clips, name);
+        if (out.exists()) out.delete();
+        JSONArray ranges = new JSONArray().put(new JSONObject().put("start", start).put("end", end));
+        JSONArray r = AudioTrimmer.trim(full, clips, ranges, RecorderService.SAMPLE_RATE, new String[] { name });
+        if (r.length() == 0) throw new IOException("この時刻の音声はありません");
+        return r.getJSONObject(0);
+    }
+
+    /** 記録後の解析結果（感度ごとの時間帯の数など）を meta.analysis に保存する。音声はそのまま残す */
+    static synchronized void saveAnalysis(Context ctx, String id, JSONObject info) throws Exception {
+        File d = dir(ctx, id);
+        JSONObject meta = readMeta(d);
+        meta.put("analysis", info == null ? new JSONObject() : info);
+        if (info != null && info.has("eventCount")) meta.put("eventCount", info.optInt("eventCount"));
+        writeMeta(d, meta);
     }
 
     static void deleteAll(Context ctx, String activeId) {

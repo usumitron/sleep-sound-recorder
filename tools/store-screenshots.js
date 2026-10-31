@@ -14,7 +14,7 @@ var chromium = require('playwright').chromium;
 var ROOT = path.join(__dirname, '..');
 var OUT = path.join(ROOT, 'store', 'screenshots');
 var URL = 'file:///' + path.join(ROOT, 'www', 'index.html').replace(/\\/g, '/');
-var SETTINGS = { consented: true, consentedAt: 1, interruptTipShown: true, sensitivity: 'mid', defaultEnd: '06:30', lastEnd: '06:30' };
+var SETTINGS = { consented: true, consentedAt: 1, consentVersion: 2, interruptTipShown: true, sensitivity: 'mid', defaultEnd: '06:30', lastEnd: '06:30' };
 
 function at(h, m, s, dayOffset) {
   var d = new Date();
@@ -64,7 +64,7 @@ function at(h, m, s, dayOffset) {
   // 4. 1時間表示で再生
   await page.click('[data-window="3600"]');
   await page.click('.event-row:nth-child(2) .play');
-  await page.waitForSelector('#player:not([hidden])');
+  await page.waitForFunction(function () { return document.getElementById('player-dur').textContent !== ''; });
   await page.clock.setFixedTime(at(23, 9, 12));
   await page.waitForTimeout(800);
   await page.click('#player-toggle');

@@ -6,10 +6,11 @@ import Foundation
 enum AudioTrimmer {
 
     /// - Parameter ranges: [(start, end)]（秒, 昇順・重なりなし）
+    /// - Parameter fileNames: 書き出すファイル名（省略時は seg_0001.aac 〜）
     /// - Returns: 音声を書き出せた範囲 [start, end, clip]
-    static func trim(full: URL, outDir: URL, ranges: [(Double, Double)], sampleRate: Int) throws -> [[String: Any]] {
+    static func trim(full: URL, outDir: URL, ranges: [(Double, Double)], sampleRate: Int, fileNames: [String]? = nil) throws -> [[String: Any]] {
         let data = try Data(contentsOf: full, options: .alwaysMapped)
-        let names = ranges.indices.map { String(format: "seg_%04d.aac", $0 + 1) }
+        let names = fileNames ?? ranges.indices.map { String(format: "seg_%04d.aac", $0 + 1) }
         var outputs = [Data?](repeating: nil, count: ranges.count)
 
         data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in

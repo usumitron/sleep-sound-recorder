@@ -6,7 +6,7 @@
 
 - 名前: 眠りの音（App ID は Monaca の iOS / Android アプリ設定を参照）
 - 目的: 睡眠中のいびき・寝言・歯ぎしりなど、大きめの音が「いつ・どれくらい続いたか」を記録して振り返る
-- 現在のバージョン: アプリ v0.5.2 ／ 録音プラグイン v0.5.0
+- 現在のバージョン: アプリ v0.6.0 ／ 録音プラグイン v0.6.0 ／ ストアの版（config.xml の version）1.0
 - 詳細仕様書（Claude Docs）: https://claude.ai/code/artifact/9b21a65a-e94c-4e65-8d52-0113d09d7eab
 - 医療機器ではない。診断・治療・「無呼吸」の判定などの表現はアプリ内・ストア説明文ともに使わない
 
@@ -42,29 +42,36 @@ res/custom_plugins/cordova-plugin-sleep-recorder/   録音プラグイン（Mona
                 AudioTrimmer.swift, SessionStore.swift
   src/android/  SleepRecorderPlugin.java, RecorderService.java, AdtsWriter.java,
                 AudioTrimmer.java, SessionStore.java
-res/ios/icon, res/android/icon アプリアイコン（元データは tools/app-icon.svg）
+res/ios/icon, res/android/icon アプリアイコン（元データは tools/app-icon*.svg。tools/make-icons.js → make-icons.py で作り直す）
+                              iOS は RGB（アルファなしでないと App Store で却下）。Android はアダプティブアイコン（*-foreground / *-background）
+res/ios/screen, res/android/screen 起動画面。スプラッシュは出さない方針のため、藍色（#1A2138）の無地／透明のアイコン
 tools/
   analysis-test.js            解析のテスト: `node tools/analysis-test.js`
-  app-icon.svg / app-icon-1024.png
+  app-icon.svg / app-icon-1024.png      アイコンの元データ（-foreground / -background は Android 用）
+  make-icons.js / make-icons.py         アイコン・起動画面の画像を res/ に書き出す
   store-screenshots.js        App Store 用スクリーンショット（1320×2868）を store/screenshots/ に作る
 store/                        ストア提出用の資料（アプリには含めない）。審査メモ・申告・テスト手順は store/README.md
   privacy-policy.html         プライバシーポリシーの公開用ページ（アプリ内の文面と合わせる）
 ```
 
-## 4. 仕組み（v0.4.0 以降）
+## 4. 仕組み（v0.6.0 以降）
 
-1. 記録中: ネイティブが一晩すべてを ADTS 形式の AAC（16kHz・モノラル・24kbps、+30dB 増幅＋tanh で頭打ち）で `clips/full.aac` に書き続け、1秒値（100ms ごとの RMS の最大値、0.1dB 単位の int16）を `graph.bin` に30秒ごとに追記する
-2. 記録後: 次にアプリを開いたとき（または停止直後）、JS の `analysis.js` が 1秒値から「続いた音」の時間帯を判定し、`trimAudio` でその前後5秒だけをフレーム単位でコピーして `seg_XXXX.aac` を作り、`full.aac` を削除する（再変換なし）
-3. 判定: 1秒値の前後10秒平均（橙の線）が「前後60分の下位5%（いちばん静かなときの音）＋感度」を超え、30秒以内の途切れはつなぎ、30秒以上続いたもの。感度は 低8／中5／高3 dB。開始60秒は対象外
-4. 保存: セッションは最大30件。10分未満は保存しない。音声は最新の保存セッションのみ残す
-5. データの置き場所: iOS は Application Support/sessions（バックアップ対象外）、Android は filesDir/sessions。外部送信なし
+1. 記録中: ネイティブが一晩すべてを ADTS 形式の AAC（16kHz・モノラル・24kbps、+30dB 増幅＋tanh で頭打ち）で `clips/full.aac` に書き続け、1秒値（100ms ごとの RMS の最大値、0.1dB 単位の int16）を `graph.bin` に30秒ごとに追記する。1時間で約11MB、12時間で約130MB
+2. 記録後: 次にアプリを開いたとき（または停止直後）、JS の `analysis.js` が 1秒値から「続いた音」の時間帯を3つの感度で判定し、`saveAnalysis` で meta.analysis（counts など）に保存する。**`full.aac` は削除しない**（v0.5 までは `trimAudio` で時間帯だけ残して削除していた。古いプラグインのときだけこの動作になる）
+3. 再生: `cutClip(id, start, end, name)` で `full.aac` から必要な範囲をフレーム単位でコピーして `play1.aac` / `play2.aac`（交互）に書き出し、`playClip` で再生する（再変換なし。ADTS を直接シークすると iOS で位置がずれるため）
+   - 時間帯の再生: 一覧の ▶。前後5秒を含めて切り出し、終わりで止まる
+   - 好きな時刻から: グラフの帯以外をタップ → 「○:○○:○○ から再生」。30分ずつ切り出し、終わりの20秒前に次を用意して、記録の最後まで続けて再生する。シークバーは記録全体
+4. 判定: 1秒値の前後10秒平均（橙の線）が「前後60分の下位5%（いちばん静かなときの音）＋感度」を超え、30秒以内の途切れはつなぎ、30秒以上続いたもの。感度は 低8／中5／高3 dB。開始60秒は対象外
+5. 保存: セッションは最大30件。10分未満は保存しない。音声は新しい保存セッション3件のみ残す（`audioSessions` / `AUDIO_SESSIONS`）
+6. 同意: データの取り扱いを変えたら app.js の `CONSENT_VERSION` を上げる（既存の利用者にも同意画面が再表示される）。v0.6 で 2
+7. データの置き場所: iOS は Application Support/sessions（バックアップ対象外）、Android は filesDir/sessions。外部送信なし
 
 ## 5. これまでにハマったこと（同じ失敗をしない）
 
 - **プラグインの更新がビルドに反映されない**ことが2回あった。原因はビルド失敗に気づかず古いデバッガーを使い続けたこと、または `monaca download` の前に `monaca upload` して古いプラグインでクラウドを上書きしたこと
   - 手順: プラグインを変えたら `res/custom_plugins/...` を編集 → `monaca upload` → カスタムビルドデバッガーをビルド → **成功を確認してから**インストール
-  - 確認: アプリの設定画面の一番下「録音プラグイン 0.5（最新）」。古いと記録開始時に警告が出る（app.js の `pluginIsCurrent`）。プラグインの版を上げたら、この判定も更新する
-- 記録の詳細画面に「感度 中 (xdB)」と出ても、それだけでは新しいネイティブで録音された証拠にならない（meta.algo === 3 かどうかで判断）
+  - 確認: アプリの設定画面の一番下「録音プラグイン 0.6（最新）」。古いと記録開始時に警告が出る（app.js の `pluginIsCurrent`。`cutClip` の有無で判定）。プラグインの版を上げたら、この判定も更新する
+- 記録の詳細画面に「感度 中 (xdB)」と出ても、それだけでは新しいネイティブで録音された証拠にならない（meta.algo === 3 かどうかで判断。v0.6 以降は meta.analysis があり、audio が 'full' のままかも見る）
 - `package.json` や `config.xml` を丸ごと上書きすると、Monaca のプラグイン管理が壊れる
 
 ## 6. 作業の進め方
@@ -79,7 +86,7 @@ store/                        ストア提出用の資料（アプリには含�
 
 - [x] App Store 用の設定: `config.xml` に iPhone 専用（`<preference name="target-device" value="handset" />`）、暗号化の申告（`ITSAppUsesNonExemptEncryption` = false を edit-config で Info.plist へ）
 - [x] 審査用のデモ: 記録は10分未満だと保存されないため、審査担当者がすぐ確認できる「サンプルの記録を表示」機能、または審査メモでの説明を用意する
-- [ ] プライバシーポリシーを公開URLに置く（`store/privacy-policy.html` は作成済み。問い合わせ先を記入して公開し、URLを登録する）
+- [ ] プライバシーポリシーを公開URLに置く（`store/privacy-policy.html` は問い合わせ先まで記入済み。公開して、URLを App Store Connect と Google Play に登録する）
 - [x] スクリーンショット（6.9インチ: 1320×2868）を用意する（`store/screenshots/`）
 - [ ] Android: Google Play のフォアグラウンドサービス（マイク）申告用のデモ動画（撮影手順と申告文の例は `store/README.md`）
 - [ ] 8時間の連続記録テストを、カスタムビルドデバッガーではなく TestFlight（リリースビルド）で行う（確認項目は `store/README.md`）

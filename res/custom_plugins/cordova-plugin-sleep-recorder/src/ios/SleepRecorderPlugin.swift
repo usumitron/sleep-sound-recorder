@@ -116,6 +116,33 @@ class SleepRecorderPlugin: CDVPlugin {
         })
     }
 
+    @objc(cutClip:)
+    func cutClip(_ command: CDVInvokedUrlCommand) {
+        let id = command.argument(at: 0) as? String ?? ""
+        let start = (command.argument(at: 1) as? NSNumber)?.doubleValue ?? 0
+        let end = (command.argument(at: 2) as? NSNumber)?.doubleValue ?? 0
+        let name = command.argument(at: 3) as? String ?? "play1.aac"
+        guard !id.contains("/"), name.hasPrefix("play"), name.hasSuffix(".aac"), !name.contains("/") else {
+            fail(command, "不正なファイル名です")
+            return
+        }
+        guard end > start else { fail(command, "再生する範囲が正しくありません"); return }
+        commandDelegate.run(inBackground: {
+            do { self.ok(command, try SessionStore.cut(id: id, start: start, end: end, name: name)) }
+            catch { self.fail(command, "音声を切り出せませんでした: \(error.localizedDescription)") }
+        })
+    }
+
+    @objc(saveAnalysis:)
+    func saveAnalysis(_ command: CDVInvokedUrlCommand) {
+        let id = command.argument(at: 0) as? String ?? ""
+        let info = command.argument(at: 1) as? [String: Any] ?? [:]
+        commandDelegate.run(inBackground: {
+            do { try SessionStore.saveAnalysis(id: id, info: info); self.ok(command) }
+            catch { self.fail(command, "解析結果を保存できませんでした") }
+        })
+    }
+
     @objc(deleteAll:)
     func deleteAll(_ command: CDVInvokedUrlCommand) {
         commandDelegate.run(inBackground: {

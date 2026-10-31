@@ -5,11 +5,13 @@ import Foundation
 /// sessions/<id>/meta.json     セッション情報
 /// sessions/<id>/graph.bin     1秒値（int16LE, 0.1dB単位）
 /// sessions/<id>/segments.json 大きな音が続いた時間帯と音声ファイル（記録後の解析で作成）
-/// sessions/<id>/clips/        音声（最新の保存セッションのみ）
-///                               full.aac   記録中の一晩分（解析後に削除）
-///                               seg_*.aac  時間帯ごとに切り出した音声
+/// sessions/<id>/clips/        音声（最新の保存セッション3件のみ）
+///                               full.aac   一晩分（v0.6 以降は残す）
+///                               play*.aac  再生のためにその都度切り出した音声（cutClip）
+///                               seg_*.aac  時間帯ごとに切り出した音声（v0.5 で記録したもの）
 enum SessionStore {
     static let maxSessions = 30
+    static let audioSessions = 3   // 一晩分の音声を残す件数（新しい順）
     static let minDurationSec = 600
     private static let fm = FileManager.default
 
@@ -46,7 +48,7 @@ enum SessionStore {
                 "endReason": NSNull(),
                 "sensitivity": sensitivity,
                 "algo": 3,
-                "audio": "full",   // full: 解析待ち / segments: 切り出し済み / none: 音声なし
+                "audio": "full",   // full: 一晩分あり / segments: 切り出し済み（v0.5） / none: 音声なし
                 "plannedEndAt": plannedEndAt,
                 "eventCount": 0,
                 "maxDb": NSNull(),
@@ -129,7 +131,7 @@ enum SessionStore {
         }
     }
 
-    /// 音声は最新の保存セッションのみ残す。件数は30件まで。
+    /// 音声は最新の保存セッション3件のみ残す。件数は30件まで。
     static func applyRetention() {
         let done = finishedMetas()
         for (i, m) in done.enumerated() {
@@ -138,7 +140,7 @@ enum SessionStore {
             if i >= maxSessions {
                 log("retention: delete oldest \(id)")
                 try? fm.removeItem(at: d)
-            } else if i > 0, (m["hasAudio"] as? Bool) == true {
+            } else if i >= audioSessions, (m["hasAudio"] as? Bool) == true {
                 try? fm.removeItem(at: d.appendingPathComponent("clips"))
                 var mm = m
                 mm["hasAudio"] = false
@@ -197,6 +199,31 @@ enum SessionStore {
             try writeMeta(d, meta)
             log("trim \(id): \(segs.count) segments")
             return out
+        }
+    }
+
+    /// 一晩分の音声から start〜end 秒を name に書き出す（再生・保存用。full.aac は残す）
+    static func cut(id: String, start: Double, end: Double, name: String) throws -> [String: Any] {
+        try trimQueue.sync {
+            let clips = dir(id).appendingPathComponent("clips")
+            let full = clips.appendingPathComponent("full.aac")
+            guard fm.fileExists(atPath: full.path) else { throw RecorderError.message("この記録の音声は残っていません") }
+            let out = clips.appendingPathComponent(name)
+            try? fm.removeItem(at: out)
+            let r = try AudioTrimmer.trim(full: full, outDir: clips, ranges: [(start, end)], sampleRate: RecorderEngine.sampleRate, fileNames: [name])
+            guard let first = r.first else { throw RecorderError.message("この時刻の音声はありません") }
+            return first
+        }
+    }
+
+    /// 記録後の解析結果（感度ごとの時間帯の数など）を meta.analysis に保存する。音声はそのまま残す
+    static func saveAnalysis(id: String, info: [String: Any]) throws {
+        try trimQueue.sync {
+            let d = dir(id)
+            guard var meta = readMeta(d) else { throw RecorderError.message("記録が見つかりません") }
+            meta["analysis"] = info
+            if let n = info["eventCount"] as? NSNumber { meta["eventCount"] = n.intValue }
+            try writeMeta(d, meta)
         }
     }
 

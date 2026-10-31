@@ -64,6 +64,27 @@ public class SleepRecorderPlugin extends CordovaPlugin implements RecorderServic
                 });
                 return true;
             }
+            case "cutClip": {
+                final String id = args.getString(0);
+                final double start = args.getDouble(1), end = args.getDouble(2);
+                final String name = args.optString(3, "play1.aac");
+                if (id.contains("/") || name.contains("/") || !name.startsWith("play") || !name.endsWith(".aac")) { cb.error("不正なファイル名です"); return true; }
+                if (end <= start) { cb.error("再生する範囲が正しくありません"); return true; }
+                runBg(() -> {
+                    try { cb.success(SessionStore.cut(ctx(), id, start, end, name)); }
+                    catch (Exception e) { cb.error("音声を切り出せませんでした: " + e.getMessage()); }
+                });
+                return true;
+            }
+            case "saveAnalysis": {
+                final String id = args.getString(0);
+                final JSONObject info = args.optJSONObject(1);
+                runBg(() -> {
+                    try { SessionStore.saveAnalysis(ctx(), id, info); cb.success(); }
+                    catch (Exception e) { cb.error("解析結果を保存できませんでした"); }
+                });
+                return true;
+            }
             case "deleteAll": runBg(() -> { SessionStore.deleteAll(ctx(), RecorderService.activeId); cb.success(); }); return true;
             case "playClip": playClip(args.getString(0), args.getString(1), args.optJSONObject(2), cb); return true;
             case "pauseClip": if (player != null && player.isPlaying()) player.pause(); cb.success(clipState()); return true;

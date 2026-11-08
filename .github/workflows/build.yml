@@ -39,7 +39,11 @@ jobs:
         with:
           gradle-version: '8.14.2'
       - name: Android SDK
-        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+        # yes は sdkmanager の終了後に SIGPIPE で止まるため、pipefail を外す
+        run: |
+          set +o pipefail
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+          test -d "$ANDROID_HOME/build-tools/36.0.0"
 
       - name: 解析のテスト
         run: node tools/analysis-test.js

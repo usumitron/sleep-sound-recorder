@@ -1,0 +1,146 @@
+# Monaca と Mac を使わずにビルドする（手順は BUILD.md）
+# - master への push: Android のデバッグ版 APK と、iOS のシミュレーター用ビルド（ネイティブのコンパイル確認）
+# - 手動実行（Actions → Build → Run workflow）で「release」を選ぶと、ストア提出用の署名付き AAB / IPA を作る
+name: Build
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ['store/**', '**.md', 'tools/*.svg', 'tools/*.png']
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'ストア提出用（署名付き AAB / IPA）を作る'
+        type: boolean
+        default: false
+      testflight:
+        description: 'iOS を TestFlight にアップロードする（release のときだけ）'
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.14.2'
+      - name: Android SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: 解析のテスト
+        run: node tools/analysis-test.js
+
+      - name: ビルド（デバッグ版 APK）
+        if: ${{ !inputs.release }}
+        run: node tools/native-build.js android 2>&1 | tee build-android.log
+
+      - name: ビルド（署名付き AAB）
+        if: ${{ inputs.release }}
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          export ANDROID_KEYSTORE="$RUNNER_TEMP/release.jks"
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE"
+          node tools/native-build.js android --release 2>&1 | tee build-android.log
+          rm -f "$ANDROID_KEYSTORE"
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: android
+          path: |
+            dist/
+            build-android.log
+          if-no-files-found: ignore
+
+  ios:
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: ビルド（シミュレーター用。署名なし）
+        if: ${{ !inputs.release }}
+        run: node tools/native-build.js ios 2>&1 | tee build-ios.log
+
+      - name: 署名の準備（証明書とプロビジョニングプロファイル）
+        if: ${{ inputs.release }}
+        env:
+          IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+          IOS_PROFILE_BASE64: ${{ secrets.IOS_PROFILE_BASE64 }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+          KC_PASS="$(openssl rand -base64 24)"
+          security create-keychain -p "$KC_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PASS" "$KEYCHAIN"
+          echo "$IOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -P "$IOS_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PASS" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+
+          PROFILE="$RUNNER_TEMP/profile.mobileprovision"
+          echo "$IOS_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+          UUID="$(security cms -D -i "$PROFILE" | plutil -extract UUID raw -)"
+          for d in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$d" && cp "$PROFILE" "$d/$UUID.mobileprovision"
+          done
+          echo "IOS_PROFILE_UUID=$UUID" >> "$GITHUB_ENV"
+          echo "KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+
+      - name: ビルド（署名付き IPA）
+        if: ${{ inputs.release }}
+        env:
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_BUILD_NUMBER: ${{ github.run_number }}
+        run: node tools/native-build.js ios --release 2>&1 | tee build-ios.log
+
+      - name: TestFlight にアップロード
+        if: ${{ inputs.release && inputs.testflight }}
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+        run: |
+          mkdir -p "$HOME/.appstoreconnect/private_keys"
+          echo "$ASC_KEY_P8_BASE64" | base64 --decode > "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+          xcrun altool --upload-app -t ios -f dist/*.ipa --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+
+      - name: 後片付け（キーチェーン）
+        if: ${{ always() && env.KEYCHAIN != '' }}
+        run: security delete-keychain "$KEYCHAIN" || true
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ always() }}
+        with:
+          name: ios
+          path: |
+            dist/*.ipa
+            build-ios.log
+          if-no-files-found: ignore

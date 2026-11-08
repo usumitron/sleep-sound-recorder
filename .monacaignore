@@ -13,3 +13,7 @@ tools/
 logs/
 .git/
 store/
+
+.github/
+dist/
+BUILD.md

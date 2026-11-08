@@ -12,7 +12,10 @@
 
 ## 2. 開発環境と制約（必ず守る）
 
-- Monaca（Cordova）で開発。**Mac は無い**。iOS のビルドは Monaca のクラウドビルドのみ。ローカルで xcodebuild / Android Studio は使えない
+- Monaca（Cordova）で開発。**Mac は無い**。ビルドの方法は次の3つ（Monaca を使わない方法の詳細は BUILD.md）
+  - Monaca のクラウドビルド（カスタムビルドデバッガー・従来どおり）
+  - Android は手元の Windows で `node tools/native-build.js android`（Android SDK と JDK あり。デバッグ版 APK が dist/ にできる）
+  - iOS は GitHub Actions（`.github/workflows/build.yml`、macOS ランナー）。master への push でシミュレーター用ビルド、手動実行で署名付き IPA／TestFlight
 - Windows + VS Code + Monaca CLI。主に使うコマンドは次の2つだけ
   - `monaca upload` … 手元の変更をクラウドへ反映（カスタムビルドデバッガーには即反映）
   - `monaca remote build --browser` … ブラウザでビルド画面を開く
@@ -21,7 +24,8 @@
   - `CDVPluginResult(...)` は optional ではない。`r?.xxx` と書かない（`keepCallback(_:)` のように optional 引数で受ける書き方にする）
   - `self.viewController` も、新旧どちらでも通るよう `let v: UIViewController? = self.viewController` で受けてから使う
   - 新旧の cordova-ios どちらでもコンパイルできる書き方を優先する
-- ネイティブ（Swift / Java）はこの環境でコンパイル確認できない。変更したら、ビルドログを `logs/` に保存してもらって確認する
+- Java は `node tools/native-build.js android` で手元でコンパイル確認できる。Swift は手元では確認できないので、GitHub Actions の Build（ios）の結果、またはビルドログを `logs/` に保存してもらって確認する
+- native-build.js はプロジェクトの外（OS の一時フォルダ）で Cordova を動かす。プロジェクト内で `cordova platform add` などを直接実行しない（package.json が書き換わる）
 
 ## 3. ファイル構成
 
@@ -49,6 +53,9 @@ tools/
   analysis-test.js            解析のテスト: `node tools/analysis-test.js`
   app-icon.svg / app-icon-1024.png      アイコンの元データ（-foreground / -background は Android 用）
   make-icons.js / make-icons.py         アイコン・起動画面の画像を res/ に書き出す
+  native-build.js             Monaca を使わないビルド（BUILD.md）。出力は dist/（git・Monaca には上げない）
+.github/workflows/build.yml   GitHub Actions のビルド（Android と iOS）
+BUILD.md                      Monaca と Mac を使わないビルドの手順・署名の登録方法
   store-screenshots.js        App Store 用スクリーンショット（1320×2868）を store/screenshots/ に作る
 store/                        ストア提出用の資料（アプリには含めない）。審査メモ・申告・テスト手順は store/README.md
   privacy-policy.html         プライバシーポリシーの公開用ページ（アプリ内の文面と合わせる）
